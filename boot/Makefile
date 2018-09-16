@@ -8,13 +8,13 @@ boot-orig: boot.img
 	../tools/mkbootimg/unpackbootimg -i boot.img -o boot-orig
 
 ramdisk-orig: boot-orig
-	mkdir ramdisk-orig
+	rm -rf ramdisk-orig && mkdir ramdisk-orig
 	zcat boot-orig/boot.img-ramdisk.gz | ( cd ramdisk-orig; cpio -i )
 
 ramdisk-patched.gz: ramdisk-orig ramdisk-changes $(shell find ramdisk-changes/ -type f) Makefile
 	rm -rf ramdisk-patched
 	cp -a ramdisk-orig ramdisk-patched
-	cp -a ramdisk-changes/* ramdisk-patched/
+	cp -r ramdisk-changes/* ramdisk-patched/
 	( cd ramdisk-patched; find | sort | cpio --quiet -o -H newc ) | gzip > ramdisk-patched.gz
 
 boot-patched.img: boot-orig ramdisk-patched.gz Makefile

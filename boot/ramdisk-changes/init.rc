@@ -454,7 +454,8 @@ on property:sys.boot_completed=1
 # Set default CPU frequency governor
 # Set timer 40ms, min sample 5s,hispeed at cpufreq MAX freq in freq_table at load 25%
     write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
-    #write /sys/devices/system/cpu/cpufreq/interactive/go_maxspeed_load 65
+    # and keep it!
+    chmod 0444 /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
     write /sys/devices/system/cpu/cpufreq/interactive/timer_rate 40000
     write /sys/devices/system/cpu/cpufreq/interactive/input_boost 1
     write /sys/devices/system/cpu/cpufreq/interactive/min_sample_time 5000000
@@ -515,8 +516,8 @@ on property:sys.powerctl=*
     powerctl ${sys.powerctl}
 
 # sys.onyx.pwrmode=on/mem
-on property:sys.onyx.pwrmode=*
-    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
+#on property:sys.onyx.pwrmode=*
+#    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
 
 # system server cannot write to /proc/sys files, so proxy it through init
 on property:sys.sysctl.extra_free_kbytes=*
