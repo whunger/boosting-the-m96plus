@@ -1,0 +1,6 @@
+boot.img
+boot-patched.img
+ramdisk-patched.gz
+boot-orig/
+ramdisk-orig/
+ramdisk-patched/
