@@ -36,7 +36,8 @@ on boot
     setprop debug.egl.hw	0
 
     setprop hwc.stretch.filter  1
-    setprop hwc.enable_dither   1
+    #setprop hwc.enable_dither   1
+    setprop hwc.enable_dither   0
 
     # fsl omx graphic manager media framework property
 
@@ -103,7 +104,9 @@ on boot
     write /sys/devices/platform/imx-uart.0/tty/ttymxc0/power/wakeup disabled
 
     # Indicate device type is tablet or SystemUI has problem without HW acceleration
+    # with typo
     setprop sys.devicy.type tablet
+    # without typo
     setprop sys.device.type tablet
 
     # disable animation for eink
@@ -123,7 +126,7 @@ service sys_initd /system/bin/sys_init
 service onyx_tpd /system/bin/logwrapper /system/bin/onyx_tpd
     class main
     user root
-    ioprio rt 1
+    #ioprio rt 1
     oneshot
 
 service p2p_supplicant /system/bin/wpa_supplicant_rtw \
