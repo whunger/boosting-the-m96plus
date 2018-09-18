@@ -1,0 +1,9 @@
+#!/bin/bash
+
+adb forward tcp:4444 tcp:4444
+
+adb shell "su -c \"busybox tar -czf - -C /system . | busybox nc -l -p 4444\"" &
+sleep 1
+busybox nc 127.0.0.1 4444 > system-current.tgz
+
+adb forward --remove tcp:4444
