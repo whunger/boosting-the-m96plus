@@ -6,7 +6,10 @@ files-supersu.tgz: files-supersu $(shell find files-supersu/ -type f)
 files-tpd.tgz: files-tpd $(shell find files-tpd/ -type f)
 	tar czvf files-tpd.tgz -C files-tpd .
 
-files-config.tgz: files-config $(shell find files-config/ -type f)
+files-config.tgz: files-config $(shell find files-config/ -type f) bootanimation-825
+	mkdir -p files-config/media
+	rm -f files-config/media/bootanimation.zip
+	(cd bootanimation-825; zip -r --compression-method store ../files-config/media/bootanimation.zip desc.txt part0)
 	tar czvf files-config.tgz -C files-config .
 
 install-supersu: install-supersu.sh files-supersu.tgz
@@ -23,6 +26,17 @@ install-config: install-config.sh files-config.tgz
 
 system.img:
 	unzip -j ../M96_KK_2017-05-02_19-37_dev_fbc2cc2_user.zip "M96_2017-05-02_19-37_dev_fbc2cc2_user/Profiles/MX6SL Linux Update/OS Firmware/files/android/system.img"
+
+bootanimation-1080: system.img
+	sudo debugfs -R "dump_inode /media/bootanimation.zip bootanimation.zip" system.img
+	mkdir bootanimation-1080
+	(cd bootanimation-1080; unzip ../bootanimation.zip)
+	rm -f bootanimation.zip
+
+bootanimation-825: bootanimation-1080
+	mkdir -p bootanimation-825/part0
+	sed -e "s/1080 1440/825 1200/" < bootanimation-1080/desc.txt > bootanimation-825/desc.txt
+	(cd bootanimation-1080; for f in part0/*.png; do pngtopnm "$$f" | pnmscale -xsize=825 -ysize=1200 | pnmdepth 15 | pnmtopng > "../bootanimation-825/$$f"; done)
 
 system-orig: system.img
 	mkdir system-orig
@@ -54,3 +68,4 @@ system.tgz: system.img
 clean:
 	rm -rf system.img system-current.img system-orig system-current
 	rm -rf files-config.tgz files-supersu.tgz files-tpd.tgz
+	rm -rf bootanimation-825 bootanimation-1080
