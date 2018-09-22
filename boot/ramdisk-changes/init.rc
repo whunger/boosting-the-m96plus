@@ -634,6 +634,10 @@ service daemonsu /system/xbin/daemonsu --auto-daemon
     class main
     user root
 
+service sleepd /system/xbin/sleepd
+    class main
+    user root
+
 service racoon /system/bin/racoon
     class main
     socket racoon stream 600 system system
