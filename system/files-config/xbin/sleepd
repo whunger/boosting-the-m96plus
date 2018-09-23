@@ -26,41 +26,25 @@
 # * to test with adb running use "dumpsys battery set ac 0"
 #
 
-if [ -e /mnt/sdcard/sleep.cfg ]
-then
-    read timeout < /mnt/sdcard/sleep.cfg
-else
-    timeout=240  # seconds
-fi
-echo "set activity timeout to $timeout s"
-
-get_activity_count() {
-    local sum_n
+get_activity_counts() {
     local irq
     local n
     local type
     local name
-    sum_n=0
+    count_pen=0
+    count_btn=0
+    count_pwr=0
     while read irq n type name
     do
-        if [ "$irq" = "59:" -o \( "${name:0:3}" = "btn" -a "${name:4}" != "power" \) ]
+        if [ "$irq" = "59:" ]
         then
-            let sum_n=sum_n+n
-        fi
-        sum_n=$sum_n
-    done < /proc/interrupts
-    echo $sum_n
-}
-
-get_btn_power_count() {
-    local irq
-    local n
-    while read irq n type name
-    do
-        if [ "$name" = "btn power" ]
+            count_pen=$n
+        elif [ "$name" = "btn power" ]
         then
-            echo $n
-            return
+            count_pwr=$n
+        elif [ "${name:0:3}" = "btn" ]
+        then
+            let count_btn=count_btn+n
         fi
     done < /proc/interrupts
 }
@@ -77,6 +61,25 @@ powerkey() {
 
 svc() {
     CLASSPATH=/system/framework/svc.jar /system/bin/app_process /system/bin com.android.commands.svc.Svc $*
+}
+
+settings() {
+    CLASSPATH=/system/framework/settings.jar /system/bin/app_process /system/bin com.android.commands.settings.SettingsCmd "$@"
+}
+
+am() {
+    CLASSPATH=/system/framework/am.jar /system/bin/app_process /system/bin com.android.commands.am.Am "$@"
+}
+
+read_config() {
+    if [ -e /mnt/sdcard/sleep.cfg ]
+    then
+        read timeout < /mnt/sdcard/sleep.cfg
+        echo "set activity timeout to $timeout s from sleep.cfg"
+    else
+        let timeout=$(settings get system screen_off_timeout)/1000
+        echo "set activity timeout to $timeout s from system settings"
+    fi
 }
 
 wait_for_mode() {
@@ -108,25 +111,35 @@ do_wake() {
     fi
 }
 
-count1_act=$(get_activity_count)
-count1_pwr=$(get_btn_power_count)
+read_config
+get_activity_counts
+
 request="none"
-last_pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
+pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
 last_activity_ts=$(get_uptime)
+last_btn_ts=$last_activity_ts
+last_pen_ts=$last_activity_ts
+last_pwr_btn_ts=$last_activity_ts
 last_request_ts=$last_activity_ts
 last_wakeup_ts=$last_activity_ts
 last_sleep_ts=$last_activity_ts
-last_pwr_btn_ts=$last_activity_ts
 
-echo sleepd > /sys/power/wake_lock
+#echo sleepd > /sys/power/wake_lock
+echo 250000 > /sys/power/device_suspend_time_threshold
 svc power stayon true
 
 while true
 do
+    last_pwrmode=$pwrmode
     pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
     read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
     uptime=$(get_uptime)
     echo "pwrmode is $last_pwrmode -> $pwrmode, governor is $governor"
+    if [ "$request" != "none" ]
+    then
+        last_request_ts=$uptime
+        request="none"
+    fi
     
     if [ "$last_pwrmode" = "mem" -a "$pwrmode" != "mem" ]
     then
@@ -143,22 +156,37 @@ do
     fi
     let sleep_recency=uptime-last_sleep_ts
 
-    count2_act=$(get_activity_count)
-    if [ $count2_act -gt $count1_act ]
+    count_btn_prv=$count_btn
+    count_pen_prv=$count_pen
+    count_pwr_prv=$count_pwr
+    get_activity_counts
+    if [ $count_btn -gt $count_btn_prv ]
     then
-        echo "input activity detected"
+        let d=count_btn-count_btn_prv
+        echo "button input activity detected: d=$d"
+        last_btn_ts=$uptime
         last_activity_ts=$uptime
-        count1_act=$count2_act
+    fi
+    if [ $count_pen -gt $count_pen_prv ]
+    then
+        let d=count_pen-count_pen_prv
+        echo "pen input activity detected: d=$d"
+        if [ $d -gt 200 ]
+        then
+            last_pen_ts=$uptime
+            last_activity_ts=$uptime
+        fi
+    fi
+    if [ $count_pwr -gt $count_pwr_prv ]
+    then
+        let d=count_pwr-count_pwr_prv
+        echo "power button press detected: d=$d"
+        last_pwr_btn_ts=$uptime
+        last_activity_ts=$uptime
     fi
     let recency=uptime-last_activity_ts
-
-    count2_pwr=$(get_btn_power_count)
-    if [ $count2_pwr -gt $count1_pwr ]
-    then
-        echo "power button press detected"
-        last_pwr_btn_ts=$uptime
-        count1_pwr=$count2_pwr
-    fi
+    let pen_recency=uptime-last_pen_ts
+    let btn_recency=uptime-last_btn_ts
     let pwr_btn_recency=uptime-last_pwr_btn_ts
 
     if [ \( $pwr_btn_recency -lt 2 \) -a "$last_pwrmode" = "on" -a "$pwrmode" = "mem" ]
@@ -183,7 +211,6 @@ do
             request="sleep"
         else
             request="wake"
-            last_activity_ts=$uptime
         fi
     elif [ \( $pwr_btn_recency -gt 10 \) -a "$last_pwrmode" != "mem" -a "$pwrmode" = "mem" ]
     then
@@ -191,18 +218,17 @@ do
         request="sleep"
     elif [ "$last_pwrmode" != "mem" -a \( $recency -gt $timeout \) ]
     then
-        echo "activity timeout detected"
+        echo "button/pen activity timeout detected"
         request="sleep"
-    elif [ "$last_pwrmode" = "mem" -a \( $recency -lt 3 \) ]
+    elif [ "$last_pwrmode" = "mem" -a \( $btn_recency -lt 3 \) ]
     then
-        echo "activity detected"
+        echo "button activity detected"
         request="wake"
-        last_activity_ts=$uptime
     fi
     echo "request is $request"
 
     let request_recency=uptime-last_request_ts
-    if [ "$request" != "none" -a \( $request_recency -lt 10 \) ]
+    if [ \( "$request" != "none" \) -a \( $request_recency -lt 10 \) ]
     then
         echo "last request was $request_recency s before, ignoring this request ..."
         request="none"
@@ -210,60 +236,50 @@ do
 
     if [ $request = "sleep" ]
     then
-        request="none"
-        last_request_ts=$uptime
         echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-        if [ "$pwrmode" = "on" ]
+        am broadcast -a refresh_screen
+        c_pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
+        if [ "$c_pwrmode" = "on" ]
         then
             echo "transition from on -> suspend ..."
             powerkey
             wait_for_mode mem
-        elif [ "$pwrmode" = "standby" ]
+        elif [ "$c_pwrmode" = "standby" ]
         then
             echo "transition from standby -> mem -> on -> mem ..."
             powerkey
             wait_for_mode mem
             powerkey
             wait_for_mode on
-            echo sleepd > /sys/power/wake_unlock
-            svc power stayon false
             powerkey
             wait_for_mode mem
         fi
-        uptime=$(get_uptime)
-        last_request_ts=$uptime
     elif [ $request = "resleep" ]
     then
         echo "transition from mem -> on -> mem ..."
-        request="none"
-        last_request_ts=$uptime
         echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-        if [ "$pwrmode" = "mem" ]
+        c_pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
+        if [ "$c_pwrmode" = "mem" ]
         then
             powerkey
             wait_for_mode on
-            echo sleepd > /sys/power/wake_unlock
-            svc power stayon false
             powerkey
             wait_for_mode mem
         fi
-        uptime=$(get_uptime)
-        last_request_ts=$uptime
     elif [ $request = "wake" ]
     then
-        request="none"
         echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
         do_wake
-        echo sleepd > /sys/power/wake_lock
+        echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
         svc power stayon true
+        read_config
+        am broadcast -a refresh_screen
         uptime=$(get_uptime)
         last_activity_ts=$uptime
-        last_request_ts=$uptime
     elif [ "$governor" != "interactive" ]
     then
         echo interactive > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
     else
         /system/bin/sleep 1
     fi
-    last_pwrmode=$pwrmode
 done
