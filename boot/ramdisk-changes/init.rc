@@ -630,13 +630,15 @@ service flash_recovery /system/etc/install-recovery.sh
     class main
     oneshot
 
-service daemonsu /system/xbin/daemonsu --auto-daemon
+service daemonsu /system/xbin/su --daemon
     class main
     user root
+    oneshot
 
 service sleepd /system/xbin/sleepd
     class main
     user root
+    disabled
 
 service racoon /system/bin/racoon
     class main
