@@ -1,0 +1,84 @@
+#!/system/bin/sh
+
+am() {
+    CLASSPATH=/system/framework/am.jar /system/bin/app_process /system/bin com.android.commands.am.Am "$@"
+}
+
+get_uptime() {
+    read uptime idle < /proc/uptime
+    /system/bin/busybox printf "%.0f" $uptime
+}
+
+powerkey() {
+    CLASSPATH=/system/framework/input.jar /system/bin/app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
+}
+
+log() {
+    /system/bin/log -p v -t sleepd "$1"
+    echo "$1"
+}
+
+wait_for_mode() {
+    local pwrmode
+    t0=$(get_uptime)
+    t1=$t0
+    log "waiting for mode $1 ..."
+    pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
+    while [ "$pwrmode" != "$1" -a $((t1-t0)) -le 5 ]
+    do
+        sleep 0.2
+        pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
+        t1=$(get_uptime)
+    done
+    d=$((t1-t0))
+    log "eow: $d"
+    return $d
+}
+
+#am broadcast -a refresh_screen
+starttime=$(get_uptime)
+lasttime=$((starttime+10))
+time=$starttime
+#/system/bin/busybox renice -15 $$
+/system/bin/logcat | while read line
+do
+    if [ "$line" != "${line%Going to sleep by user request...*}" ]
+    then
+        time=$(get_uptime)
+        if [ $((time-lasttime)) -lt 10 ]
+        then
+            log "ignored request"
+            time=$(get_uptime)
+        else
+            echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+            lasttime=$(get_uptime)
+            c_pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
+            if [ "$c_pwrmode" = "on" ]
+            then
+                log "transition from on -> mem ..."
+                powerkey
+                wait_for_mode mem
+            elif [ "$c_pwrmode" = "mem" ]
+            then
+                log "transition from mem -> on -> mem ..."
+                powerkey
+                wait_for_mode on && (powerkey; wait_for_mode mem)
+            elif [ "$c_pwrmode" = "standby" ]
+            then
+                log "transition from standby -> mem -> on -> mem ..."
+                powerkey
+                wait_for_mode mem && (powerkey; wait_for_mode on) && (powerkey; wait_for_mode mem)
+            fi
+        fi
+        lasttime=$(get_uptime)
+    elif [ "$line" != "${line%SYSTEM POWER STATE*}" ]
+    then
+        echo interactive > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+        log "set governor to interactive"
+        #if [ "$line" != "${line%SYSTEM POWER STATE*on*}" ]
+        #then
+        #    am broadcast -a refresh_screen
+        #    log "broadcast refresh_screen"
+        #fi
+    fi
+done

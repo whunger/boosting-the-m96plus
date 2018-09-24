@@ -460,6 +460,8 @@ on property:sys.boot_completed=1
     write /sys/devices/system/cpu/cpufreq/interactive/go_hispeed_load 25
     #write /sys/devices/system/cpu/cpufreq/interactive/io_is_busy 1
     #write /sys/devices/system/cpu/cpufreq/interactive/hispeed_freq 792000
+    write /sys/power/device_suspend_time_threshold 400000
+
 # change interactive atrrubuties permissions when interactive is actived
 on property:sys.interactive="active"
     chown system root /sys/devices/system/cpu/cpufreq/interactive/timer_rate
@@ -638,7 +640,8 @@ service daemonsu /system/xbin/su --daemon
 service sleepd /system/xbin/sleepd
     class main
     user root
-    disabled
+    oneshot
+    #disabled
 
 service racoon /system/bin/racoon
     class main
