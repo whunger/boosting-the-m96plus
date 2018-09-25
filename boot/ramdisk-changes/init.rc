@@ -640,7 +640,6 @@ service daemonsu /system/xbin/su --daemon
 service sleepd /system/xbin/sleepd
     class main
     user root
-    oneshot
     #disabled
 
 service racoon /system/bin/racoon

@@ -5,8 +5,9 @@ am() {
 }
 
 get_uptime() {
-    read uptime idle < /proc/uptime
-    /system/bin/busybox printf "%.0f" $uptime
+    local uptime
+    read uptime < /proc/uptime
+    echo ${uptime%%.*}
 }
 
 powerkey() {
@@ -18,32 +19,44 @@ log() {
     echo "$1"
 }
 
-wait_for_mode() {
+enter_mode() {
     local pwrmode
+    local t0
+    local t1
+    local d
+    local rc
     t0=$(get_uptime)
-    t1=$t0
-    log "waiting for mode $1 ..."
+    d=0
+    log "trying to enter mode $1 ..."
     pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
-    while [ "$pwrmode" != "$1" -a $((t1-t0)) -le 5 ]
+    rc=0
+    while [ "$pwrmode" != "$1" -a $d -le 30 ]
     do
-        sleep 0.2
+        sleep 0.3
         pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
+        if [ "$pwrmode" = "$1" ]
+        then
+            rc=0
+        else
+            powerkey
+        fi
         t1=$(get_uptime)
+        d=$((t1-t0))
     done
-    d=$((t1-t0))
-    log "eow: $d"
-    return $d
+    log "enter_mode: $pwrmode, $d, $rc"
+    return $rc
 }
 
-#am broadcast -a refresh_screen
+/system/bin/busybox renice -15 $$
+
 starttime=$(get_uptime)
 lasttime=$((starttime+10))
 time=$starttime
-#/system/bin/busybox renice -15 $$
 /system/bin/logcat | while read line
 do
     if [ "$line" != "${line%Going to sleep by user request...*}" ]
     then
+        echo $line
         time=$(get_uptime)
         if [ $((time-lasttime)) -lt 10 ]
         then
@@ -51,34 +64,21 @@ do
             time=$(get_uptime)
         else
             echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-            lasttime=$(get_uptime)
-            c_pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
-            if [ "$c_pwrmode" = "on" ]
-            then
-                log "transition from on -> mem ..."
-                powerkey
-                wait_for_mode mem
-            elif [ "$c_pwrmode" = "mem" ]
-            then
-                log "transition from mem -> on -> mem ..."
-                powerkey
-                wait_for_mode on && (powerkey; wait_for_mode mem)
-            elif [ "$c_pwrmode" = "standby" ]
-            then
-                log "transition from standby -> mem -> on -> mem ..."
-                powerkey
-                wait_for_mode mem && (powerkey; wait_for_mode on) && (powerkey; wait_for_mode mem)
-            fi
+            enter_mode mem && enter_mode on && enter_mode mem
         fi
         lasttime=$(get_uptime)
     elif [ "$line" != "${line%SYSTEM POWER STATE*}" ]
     then
-        echo interactive > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-        log "set governor to interactive"
-        #if [ "$line" != "${line%SYSTEM POWER STATE*on*}" ]
-        #then
-        #    am broadcast -a refresh_screen
-        #    log "broadcast refresh_screen"
-        #fi
+        echo "$line"
+        read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+        if [ "$governor" != "interactive" ]
+        then
+            echo interactive > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+            log "set governor to interactive"
+        fi
+    elif [ "$line" != "${line%Excessive delay in autosuspend_disable\(\) while turning screen on*}" ]
+    then
+        am broadcast -a refresh_screen
+        log "refresh_screen requested"
     fi
 done
