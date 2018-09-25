@@ -11,15 +11,15 @@ files-config.tgz: files-config $(shell find files-config/ -type f) files-config/
 
 install-supersu: install-supersu.sh files-supersu.tgz
 	adb push install-supersu.sh files-supersu.tgz /mnt/sdcard/
-	adb shell "cd /mnt/sdcard && su -c 'sh install-supersu.sh'"
+	adb shell "cd /mnt/sdcard && su -c 'sh install-supersu.sh; rm install-supersu.sh files-supersu.tgz'"
 
 install-tpd: install-tpd.sh files-tpd.tgz
 	adb push install-tpd.sh files-tpd.tgz /mnt/sdcard/
-	adb shell "cd /mnt/sdcard && su -c 'sh install-tpd.sh'"
+	adb shell "cd /mnt/sdcard && su -c 'sh install-tpd.sh; rm install-tpd.sh files-tpd.tgz'"
 
 install-config: install-config.sh files-config.tgz
 	adb push install-config.sh files-config.tgz /mnt/sdcard/
-	adb shell "cd /mnt/sdcard && su -c 'sh install-config.sh'"
+	adb shell "cd /mnt/sdcard && su -c 'sh install-config.sh; rm install-config.sh files-config.tgz'"
 
 system.img:
 	unzip -j ../M96_KK_2017-05-02_19-37_dev_fbc2cc2_user.zip "M96_2017-05-02_19-37_dev_fbc2cc2_user/Profiles/MX6SL Linux Update/OS Firmware/files/android/system.img"
