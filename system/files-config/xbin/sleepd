@@ -49,6 +49,8 @@ enter_mode() {
 
 /system/bin/busybox renice -15 $$
 
+echo 400000 > /sys/power/device_suspend_time_threshold
+
 starttime=$(get_uptime)
 lasttime=$((starttime+10))
 time=$starttime
