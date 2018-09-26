@@ -67,9 +67,9 @@ do
             time=$(get_uptime)
         else
             echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-            # is this sufficent already?
-            enter_mode mem
-            #enter_mode mem && enter_mode on && enter_mode mem
+            # is this sufficent already? does not seem so.
+            #enter_mode mem
+            enter_mode mem && enter_mode on && enter_mode mem
         fi
         lasttime=$(get_uptime)
     elif [ "$line" != "${line%SYSTEM POWER STATE*}" ]
