@@ -38,12 +38,12 @@ ro.build.characteristics=tablet
 ro.carrier=unknown
 ro.config.notification_sound=OnTheHunt.ogg
 ro.config.alarm_alert=Alarm_Classic.ogg
-dalvik.vm.heapstartsize=8m
+dalvik.vm.heapstartsize=4m
 dalvik.vm.heapgrowthlimit=192m
-dalvik.vm.heapsize=512m
-#dalvik.vm.heaptargetutilization=0.75
-#dalvik.vm.heapminfree=512k
-#dalvik.vm.heapmaxfree=8m
+dalvik.vm.heapsize=384m
+dalvik.vm.heaptargetutilization=0.7
+dalvik.vm.heapminfree=2m
+dalvik.vm.heapmaxfree=8m
 persist.sys.dalvik.vm.lib=libdvm.so
 dalvik.vm.dexopt-flags=m=y
 net.bt.name=Android
