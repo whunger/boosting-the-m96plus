@@ -12,3 +12,5 @@ chown 0:0 /system/media/bootanimation.zip
 chown 0:0 /system/xbin/sleepd
 
 mount -o remount,ro /system
+
+stop sleepd && start sleepd
