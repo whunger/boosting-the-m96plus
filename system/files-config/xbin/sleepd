@@ -1,7 +1,11 @@
 #!/system/bin/sh
 
-am() {
-    CLASSPATH=/system/framework/am.jar /system/bin/app_process /system/bin com.android.commands.am.Am "$@"
+log() {
+    local uptime
+    local rest
+    read uptime rest < /proc/uptime
+    /system/bin/log -p v -t sleepd "$1"
+    echo "$uptime $1" >> /mnt/sdcard/sleepd.log
 }
 
 get_uptime() {
@@ -10,13 +14,12 @@ get_uptime() {
     echo ${uptime%%.*}
 }
 
-powerkey() {
-    CLASSPATH=/system/framework/input.jar /system/bin/app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
+am() {
+    CLASSPATH=/system/framework/am.jar /system/bin/app_process /system/bin com.android.commands.am.Am "$@"
 }
 
-log() {
-    /system/bin/log -p v -t sleepd "$1"
-    echo "$1"
+powerkey() {
+    CLASSPATH=/system/framework/input.jar /system/bin/app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
 }
 
 enter_mode() {
@@ -28,6 +31,7 @@ enter_mode() {
     t0=$(get_uptime)
     d=0
     rc=0
+    powerkey
     while true
     do
         pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
@@ -40,6 +44,7 @@ enter_mode() {
         if [ $d -le 30 ]
         then
             powerkey
+            log "generated powerkey event"
         else
             rc=1
             break
@@ -50,8 +55,9 @@ enter_mode() {
     return $rc
 }
 
-#/system/bin/busybox renice -15 $$
 
+log "Started sleepd at $(busybox date)"
+#/system/bin/busybox renice -15 $$
 #echo 400000 > /sys/power/device_suspend_time_threshold
 
 starttime=$(get_uptime)
@@ -59,9 +65,12 @@ lasttime=$((starttime+10))
 time=$starttime
 /system/bin/logcat | while read line
 do
-    if [ "$line" != "${line%Going to sleep by user request...*}" ]
+    if [ "$line" != "${line%/sleepd*}" ]
     then
-        echo $line
+        true  # ignore
+    elif [ "$line" != "${line%Going to sleep by user request...*}" ]
+    then
+        log "$line"
         time=$(get_uptime)
         if [ $((time-lasttime)) -lt 10 ]
         then
@@ -74,9 +83,12 @@ do
             enter_mode mem && enter_mode on && enter_mode mem
         fi
         lasttime=$(get_uptime)
+    elif [ "$line" != "${line%Going to sleep*}" ]
+    then
+        log "$line"
     elif [ "$line" != "${line%SYSTEM POWER STATE*}" ]
     then
-        echo "$line"
+        log "$line"
         read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
         if [ "$governor" != "interactive" ]
         then
@@ -85,6 +97,7 @@ do
         fi
     elif [ "$line" != "${line%Excessive delay in autosuspend_disable\(\) while turning screen on*}" ]
     then
+        log "$line"
         if [ "$(/system/bin/getprop sys.onyx.pwrmode)" != "mem" ]
         then
             am broadcast -a refresh_screen
