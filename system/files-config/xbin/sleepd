@@ -22,27 +22,29 @@ log() {
 enter_mode() {
     local pwrmode
     local t0
-    local t1
     local d
     local rc
+    log "trying to enter mode $1 ..."
     t0=$(get_uptime)
     d=0
-    log "trying to enter mode $1 ..."
-    pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
     rc=0
-    while [ "$pwrmode" != "$1" -a $d -le 30 ]
+    while true
     do
-        sleep 0.3
         pwrmode=$(/system/bin/getprop sys.onyx.pwrmode)
         if [ "$pwrmode" = "$1" ]
         then
             rc=0
+            break
+        fi
+        d=$(($(get_uptime)-t0))
+        if [ $d -le 30 ]
+        then
+            powerkey
         else
             rc=1
-            powerkey
+            break
         fi
-        t1=$(get_uptime)
-        d=$((t1-t0))
+        sleep 0.3
     done
     log "enter_mode: $pwrmode, $d, $rc"
     return $rc
