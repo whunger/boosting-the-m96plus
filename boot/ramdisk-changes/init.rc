@@ -340,7 +340,7 @@ on boot
 
     # Define I/O schedulers to use for mmc
     write /sys/block/mmcblk0/queue/scheduler "deadline"
-    write /sys/block/mmcblk1/queue/scheduler "deadline"
+    write /sys/block/mmcblk1/queue/scheduler "cfq"
 
     # Memory or CPU?
     write /sys/kernel/mm/ksm/run 1
@@ -641,11 +641,6 @@ service daemonsu /system/xbin/su --daemon
     user root
     oneshot
 
-service sleepd /system/xbin/sleepd
-    class main
-    user root
-    #disabled
-
 service racoon /system/bin/racoon
     class main
     socket racoon stream 600 system system
@@ -752,6 +747,10 @@ service iprenew_bt-pan /system/bin/dhcpcd -n
 service wifi_mac /system/bin/sh /system/etc/check_wifi_mac.sh
     class late_start
     oneshot
+
+service sleepd /system/xbin/sleepd
+    class late_start
+    user root
 
 # virtual sdcard daemon running as media_rw (1023)
 # default 4 threads have better performance to 2 threads.
