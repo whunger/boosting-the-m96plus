@@ -16,3 +16,5 @@ chown 0:0 /system/lib/ts/plugins/skip.so
 chown 0:0 /system/lib/libts2.so
 
 mount -o remount,ro /system
+
+stop onyx_tpd && start onyx_tpd
