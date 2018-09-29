@@ -56,17 +56,32 @@ mode="on"
     do
         case "$line" in
         */sleepd*)
-            true  # ignore own messages
+            continue  # ignore own messages
             ;;
-        {*Going\ to\ sleep*|*showSystemImage:\ index*|*handleInterceptActions:*})
+        *showSystemImage:\ index:-1*)
             log "$line"
+            if [ $state = 0]
+            then
+                am broadcast -a refresh_screen
+                log "refresh_screen requested"
+            fi
+            ;;
+        *WindowManager\(*\):\ Window\ freeze\ timeout\ expired.*)
+            log "$line"
+            am broadcast -a refresh_screen
+            log "refresh_screen requested"
             ;;
         *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
             log "$line"
+            if [ $state = 0 ]
+            then
+                powerkey
+                state=1
+                log "powerkey, state=1"
+            fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[on\]*)
             log "$line"
-            check_governor
             if [ $state = 1 ]
             then
                 powerkey
@@ -77,32 +92,32 @@ mode="on"
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
             log "$line"
-            check_governor
             mode="standby"
             ;;
         *SYSTEM\ POWER\ STATE:\ \[mem\]*)
             log "$line"
-            check_governor
-            if [ $state = 2 ]
-            then
-                state=0
-                log "state=0"
-            elif [ "$mode" = "standby" ]
+            if [ $state = 0 ] && [ "$mode" = "standby" ]
             then
                 powerkey
                 state=1
                 log "powerkey, state=1"
+            elif [ $state = 2 ]
+            then
+                state=0
+                log "state=0"
             fi
             mode="mem"
             ;;
         *Excessive\ delay\ in\ autosuspend_disable\(\)\ while\ turning\ screen\ on*)
             log "$line"
-            if [ "$mode" != "mem" ]
-            then
-                am broadcast -a refresh_screen
-                log "refresh_screen requested"
-            fi
+            ;;
+        {*Going\ to\ sleep*|*showSystemImage:\ index*|*handleInterceptActions:*})
+            log "$line"
+            ;;
+        *)
+            continue
             ;;
         esac
+        check_governor
     done
 }
