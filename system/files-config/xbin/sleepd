@@ -71,7 +71,7 @@ mode="on"
             am broadcast -a refresh_screen
             log "refresh_screen requested"
             ;;
-        *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
+        *{showSystemImage:\ index:0|updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state}*)
             log "$line"
             if [ $state = 0 ]
             then
@@ -108,10 +108,10 @@ mode="on"
             fi
             mode="mem"
             ;;
-        *Excessive\ delay\ in\ autosuspend_disable\(\)\ while\ turning\ screen\ on*)
+        *Excessive\ delay*while\ turning\ screen*)
             log "$line"
             ;;
-        {*Going\ to\ sleep*|*showSystemImage:\ index*|*handleInterceptActions:*})
+        *{Going\ to\ sleep|showSystemImage:\ index|handleInterceptActions:}*)
             log "$line"
             ;;
         *)
