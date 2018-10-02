@@ -748,7 +748,7 @@ service wifi_mac /system/bin/sh /system/etc/check_wifi_mac.sh
     class late_start
     oneshot
 
-service sleepd /system/xbin/sleepd
+service sleepd /system/bin/logwrapper /system/xbin/sleepd
     class late_start
     user root
 

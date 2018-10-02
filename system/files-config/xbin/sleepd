@@ -1,12 +1,12 @@
 #!/system/bin/sh
 
 log() {
-    local uptime
-    local rest
-    read uptime rest < /proc/uptime
-    #/system/bin/log -p v -t sleepd "$1"
-    echo "$uptime $1"
-    echo "$uptime $1" >> /mnt/sdcard/sleepd.log
+    #local uptime
+    #local rest
+    #read uptime rest < /proc/uptime
+    echo "$1"
+    #echo "$uptime $1"
+    #echo "$uptime $1" >> /mnt/sdcard/sleepd.log
 }
 
 get_uptime() {
@@ -26,11 +26,13 @@ powerkey() {
 check_governor() {
     local governor
     read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-    if [ "$governor" != "interactive" ]
+    if [ "$governor" != "$1" ]
     then
-        echo interactive > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-        log "set governor to interactive"
+        echo "$1" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+        log "set governor to $1"
+        return 0
     fi
+    return 1
 }
 
 
@@ -71,10 +73,11 @@ mode="on"
             am broadcast -a refresh_screen
             log "refresh_screen requested"
             ;;
-        *{showSystemImage:\ index:0|updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state}*)
+        *{showSystemImage:\ index:0|updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state|handleInterceptActions:\ Not\ passing\ key\ to\ user|Going\ to\ sleep\ by\ user\ request...}*)
             log "$line"
             if [ $state = 0 ]
             then
+                check_governor performance && log "$line"
                 powerkey
                 state=1
                 log "powerkey, state=1"
@@ -89,10 +92,12 @@ mode="on"
                 log "powerkey, state=2"
             fi
             mode="on"
+            check_governor interactive && log "$line"
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
             log "$line"
             mode="standby"
+            check_governor interactive && log "$line"
             ;;
         *SYSTEM\ POWER\ STATE:\ \[mem\]*)
             log "$line"
@@ -108,16 +113,14 @@ mode="on"
             fi
             mode="mem"
             ;;
-        *Excessive\ delay*while\ turning\ screen*)
+        *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:}*)
             log "$line"
             ;;
-        *{Going\ to\ sleep|showSystemImage:\ index|handleInterceptActions:}*)
-            log "$line"
+        *update_to_display*)
+            check_governor performance && log "$line"
             ;;
         *)
-            continue
             ;;
         esac
-        check_governor
     done
 }
