@@ -1,19 +1,9 @@
 #!/system/bin/sh
 
-log() {
-    #local uptime
-    #local rest
-    #read uptime rest < /proc/uptime
-    echo "$1"
-    #echo "$uptime $1"
-    #echo "$uptime $1" >> /mnt/sdcard/sleepd.log
-}
-
-get_uptime() {
-    local uptime
-    read uptime < /proc/uptime
-    echo ${uptime%%.*}
-}
+if [ -z "$1" ]
+then
+    exec /system/bin/logwrapper "$0" wrapped
+fi
 
 am() {
     CLASSPATH=/system/framework/am.jar /system/bin/app_process /system/bin com.android.commands.am.Am "$@"
@@ -29,7 +19,7 @@ check_governor() {
     if [ "$governor" != "$1" ]
     then
         echo "$1" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-        log "set governor to $1"
+        echo "set governor to $1"
         return 0
     fi
     return 1
@@ -38,11 +28,13 @@ check_governor() {
 
 #/system/bin/busybox renice -15 $$
 #echo 400000 > /sys/power/device_suspend_time_threshold
+/system/bin/busybox renice 19 $(/system/bin/busybox pgrep "mmcqd/1")
 
 marker="== started sleepd $$ at $(busybox date) =="
-/system/bin/log -p v -t sleepd "$marker"
+echo "$marker"
 
 state=0
+state_reached=0
 mode="on"
 
 /system/bin/logcat | {
@@ -51,76 +43,111 @@ mode="on"
     do
         [ "$line" != "${line%$marker*}" ] && break
     done
-    log "$marker"
 
     # start reacting to messages
     while read line
     do
         case "$line" in
+        */sleepd*state=0*)
+            state_reached=0
+            continue
+            ;;
+        */sleepd*state=1*)
+            state_reached=1
+            continue
+            ;;
+        */sleepd*state=2*)
+            state_reached=2
+            continue
+            ;;
         */sleepd*)
             continue  # ignore own messages
             ;;
         *showSystemImage:\ index:-1*)
-            log "$line"
-            if [ $state = 0]
+            echo "$line"
+            if [ $state_reached = 0 ]
             then
                 am broadcast -a refresh_screen
-                log "refresh_screen requested"
+                echo "refresh_screen requested"
             fi
             ;;
         *WindowManager\(*\):\ Window\ freeze\ timeout\ expired.*)
-            log "$line"
+            echo "$line"
             am broadcast -a refresh_screen
-            log "refresh_screen requested"
+            echo "refresh_screen requested"
             ;;
-        *{showSystemImage:\ index:0|updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state|handleInterceptActions:\ Not\ passing\ key\ to\ user|Going\ to\ sleep\ by\ user\ request...}*)
-            log "$line"
-            if [ $state = 0 ]
+        *{showSystemImage:\ index:0|updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state|handleInterceptActions:\ Not\ passing\ key\ to\ user|Going\ to\ sleep\ by\ user\ request...|Going\ to\ sleep\ due\ to\ screen\ timeout...}*)
+            echo "$line"
+            if [ $state_reached = 0 ]
             then
-                check_governor performance && log "$line"
+                check_governor performance
                 powerkey
-                state=1
-                log "powerkey, state=1"
+        		state=1
+                echo "powerkey, state=1"
             fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[on\]*)
-            log "$line"
+            echo "$line"
             if [ $state = 1 ]
             then
                 powerkey
-                state=2
-                log "powerkey, state=2"
-            fi
-            mode="on"
-            check_governor interactive && log "$line"
-            ;;
-        *SYSTEM\ POWER\ STATE:\ \[standby\]*)
-            log "$line"
-            mode="standby"
-            check_governor interactive && log "$line"
-            ;;
-        *SYSTEM\ POWER\ STATE:\ \[mem\]*)
-            log "$line"
-            if [ $state = 0 ] && [ "$mode" = "standby" ]
-            then
-                powerkey
-                state=1
-                log "powerkey, state=1"
+        		state=2
+                echo "powerkey, state=2"
             elif [ $state = 2 ]
             then
-                state=0
-                log "state=0"
+		        state=0
+                echo "reset to state=0"
+            fi
+            mode="on"
+            check_governor interactive
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[standby\]*)
+            echo "$line"
+            if [ $state -gt 0 ]
+            then
+        		state=0
+                echo "reset to state=0"
+            fi
+            mode="standby"
+            check_governor performance
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[mem\]*)
+            echo "$line"
+            if [ $state_reached = 0 ]  # && [ "$mode" = "standby" ]
+            then
+                powerkey
+		        state=1
+                echo "powerkey, state=1"
+            elif [ $state = 1 ]
+            then
+        		state=0
+                echo "reset to state=0"
+            elif [ $state = 2 ]
+            then
+		        state=0
+                echo "state=0"
             fi
             mode="mem"
             ;;
-        *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:}*)
-            log "$line"
+        *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:|screen*on|screen*off}*)
+            echo "$line"
+            read brightness < /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/actual_brightness
+            if [ $brightness -gt 0 ]
+            then
+                echo "0" > /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/brightness
+                echo "set backlight pwm value to 0 (was $brightness)"
+            fi
             ;;
         *update_to_display*)
-            check_governor performance && log "$line"
+            check_governor performance && echo "$line"
             ;;
         *)
             ;;
         esac
     done
 }
+
+# Todo: React to these by waking the device up?
+#10-03 20:06:01.070 D/InputManager-JNI( 2371): handleInterceptActions: Waking up.
+#10-03 20:06:01.090 I/InputDispatcher( 2371): Dropped event because input dispatch is disabled.
+#10-03 20:06:01.090 D/pms     ( 2371): userActivityNoUpdateLocked: reject all events except the POWER/FORCE_WAKEUP key
