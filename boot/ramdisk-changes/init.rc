@@ -518,11 +518,11 @@ on property:vold.decrypt=trigger_shutdown_framework
 
 on property:sys.powerctl=*
     powerctl ${sys.powerctl}
-    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
+    #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
 
 # sys.onyx.pwrmode=on/mem/standby
 on property:sys.onyx.pwrmode=*
-    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
+    #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
 
 # system server cannot write to /proc/sys files, so proxy it through init
 on property:sys.sysctl.extra_free_kbytes=*
@@ -598,7 +598,7 @@ service debuggerd /system/bin/debuggerd
 service surfaceflinger /system/bin/surfaceflinger
     class main
     user root
-    #ioprio rt 6
+    ioprio rt 8
     group graphics drmrpc
     onrestart restart zygote
 
