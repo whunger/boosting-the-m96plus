@@ -26,6 +26,8 @@ check_governor() {
 }
 
 
+#CLASSPATH=/system/framework/settings.jar /system/bin/app_process /system/bin com.android.commands.settings.SettingsCmd set system screen_off_timeout 300000
+
 #/system/bin/busybox renice -15 $$
 #echo 400000 > /sys/power/device_suspend_time_threshold
 /system/bin/busybox renice 19 $(/system/bin/busybox pgrep "mmcqd/1")
@@ -37,7 +39,7 @@ state=0
 state_reached=0
 mode="on"
 
-/system/bin/logcat | {
+/system/bin/logcat -b system -b main -b events | {
     # ignore log up to $marker
     while read line
     do
@@ -109,7 +111,8 @@ mode="on"
                 echo "reset to state=0"
             fi
             mode="standby"
-            check_governor performance
+            check_governor interactive
+            echo 0 > /sys/class/graphics/fb0/blank
             ;;
         *SYSTEM\ POWER\ STATE:\ \[mem\]*)
             echo "$line"
@@ -129,13 +132,13 @@ mode="on"
             fi
             mode="mem"
             ;;
-        *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:|screen*on|screen*off}*)
+        *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:|screen|Power|power}*)
             echo "$line"
             read brightness < /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/actual_brightness
-            if [ $brightness -gt 0 ]
+            if [ $brightness -ne 10 ]
             then
-                echo "0" > /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/brightness
-                echo "set backlight pwm value to 0 (was $brightness)"
+                echo "10" > /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/brightness
+                echo "set backlight pwm value to 10 (was $brightness)"
             fi
             ;;
         *update_to_display*)
@@ -145,7 +148,7 @@ mode="on"
             ;;
         esac
     done
-}
+} | /system/bin/busybox tee -a /mnt/sdcard/sleepd.log
 
 # Todo: React to these by waking the device up?
 #10-03 20:06:01.070 D/InputManager-JNI( 2371): handleInterceptActions: Waking up.
