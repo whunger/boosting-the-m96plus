@@ -5,8 +5,17 @@ then
     exec /system/bin/logwrapper "$0" wrapped
 fi
 
+log() {
+    echo >&2 "$1"
+    [ -e "/mnt/sdcard/sleepd.log" ] && echo "$1" >> /mnt/sdcard/sleepd.log
+}
+
 am() {
     CLASSPATH=/system/framework/am.jar /system/bin/app_process /system/bin com.android.commands.am.Am "$@"
+}
+
+settings() {
+    CLASSPATH=/system/framework/settings.jar /system/bin/app_process /system/bin com.android.commands.settings.SettingsCmd "$@"
 }
 
 powerkey() {
@@ -19,27 +28,13 @@ check_governor() {
     if [ "$governor" != "$1" ]
     then
         echo "$1" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-        echo "set governor to $1"
+        log "set governor to $1"
         return 0
     fi
     return 1
 }
 
-
-#CLASSPATH=/system/framework/settings.jar /system/bin/app_process /system/bin com.android.commands.settings.SettingsCmd set system screen_off_timeout 300000
-
-#/system/bin/busybox renice -15 $$
-#echo 400000 > /sys/power/device_suspend_time_threshold
-/system/bin/busybox renice 19 $(/system/bin/busybox pgrep "mmcqd/1")
-
-marker="== started sleepd $$ at $(busybox date) =="
-echo "$marker"
-
-state=0
-state_reached=0
-mode="on"
-
-/system/bin/logcat -b system -b main -b events | {
+sleepd() {
     # ignore log up to $marker
     while read line
     do
@@ -66,91 +61,105 @@ mode="on"
             continue  # ignore own messages
             ;;
         *showSystemImage:\ index:-1*)
-            echo "$line"
+            log "$line"
             if [ $state_reached = 0 ]
             then
                 am broadcast -a refresh_screen
-                echo "refresh_screen requested"
+                log "refresh_screen requested"
             fi
             ;;
         *WindowManager\(*\):\ Window\ freeze\ timeout\ expired.*)
-            echo "$line"
+            log "$line"
             am broadcast -a refresh_screen
-            echo "refresh_screen requested"
+            log "refresh_screen requested"
             ;;
         *{showSystemImage:\ index:0|updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state|handleInterceptActions:\ Not\ passing\ key\ to\ user|Going\ to\ sleep\ by\ user\ request...|Going\ to\ sleep\ due\ to\ screen\ timeout...}*)
-            echo "$line"
-            if [ $state_reached = 0 ]
+            log "$line"
+            if [ $state = 0 ]
             then
                 check_governor performance
                 powerkey
         		state=1
-                echo "powerkey, state=1"
+                log "powerkey, state=1"
             fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[on\]*)
-            echo "$line"
+            log "$line"
             if [ $state = 1 ]
             then
                 powerkey
         		state=2
-                echo "powerkey, state=2"
+                log "powerkey, state=2"
             elif [ $state = 2 ]
             then
 		        state=0
-                echo "reset to state=0"
+                log "reset to state=0"
             fi
             mode="on"
             check_governor interactive
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
-            echo "$line"
+            log "$line"
             if [ $state -gt 0 ]
             then
         		state=0
-                echo "reset to state=0"
+                log "reset to state=0"
             fi
             mode="standby"
             check_governor interactive
-            echo 0 > /sys/class/graphics/fb0/blank
+            # Probably of no use:
+            echo "0" > /sys/class/graphics/fb0/blank
             ;;
         *SYSTEM\ POWER\ STATE:\ \[mem\]*)
-            echo "$line"
-            if [ $state_reached = 0 ]  # && [ "$mode" = "standby" ]
+            log "$line"
+            if [ $state = 0 ]
             then
                 powerkey
 		        state=1
-                echo "powerkey, state=1"
+                log "powerkey, state=1"
             elif [ $state = 1 ]
             then
         		state=0
-                echo "reset to state=0"
+                log "reset to state=0"
             elif [ $state = 2 ]
             then
 		        state=0
-                echo "state=0"
+                log "state=0"
             fi
             mode="mem"
             ;;
         *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:|screen|Power|power}*)
-            echo "$line"
-            read brightness < /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/actual_brightness
-            if [ $brightness -ne 10 ]
-            then
-                echo "10" > /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/brightness
-                echo "set backlight pwm value to 10 (was $brightness)"
-            fi
+            log "$line"
             ;;
         *update_to_display*)
-            check_governor performance && echo "$line"
-            ;;
-        *)
+            check_governor performance && log "$line"
             ;;
         esac
     done
-} | /system/bin/busybox tee -a /mnt/sdcard/sleepd.log
+}
+
+
+marker="== started sleepd $$ at $(busybox date) =="
+log "$marker"
+
+#/system/bin/busybox renice -15 $$
+#echo 400000 > /sys/power/device_suspend_time_threshold
+/system/bin/busybox renice 19 $(/system/bin/busybox pgrep "mmcqd/1")
+
+#settings set system screen_off_timeout 300000
+log "System's screen off timeout is set to $(($(settings get system screen_off_timeout)/1000)) s"
+
+state=0
+state_reached=0
+mode="on"
+
+/system/bin/logcat -b system -b main -b events | sleepd
 
 # Todo: React to these by waking the device up?
 #10-03 20:06:01.070 D/InputManager-JNI( 2371): handleInterceptActions: Waking up.
 #10-03 20:06:01.090 I/InputDispatcher( 2371): Dropped event because input dispatch is disabled.
 #10-03 20:06:01.090 D/pms     ( 2371): userActivityNoUpdateLocked: reject all events except the POWER/FORCE_WAKEUP key
+
+# No use: Fixing brightness with
+# /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/actual_brightness
+# /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/brightness
