@@ -13,7 +13,7 @@ fi
 
 log() {
     echo >&2 "$1"
-    [ -e "/mnt/sdcard/sleepd.log" ] && echo "$1" >> /mnt/sdcard/sleepd.log
+    [ -e "/mnt/sdcard/sleepd.log" ] && echo "$(busybox date) $1" >> /mnt/sdcard/sleepd.log
 }
 
 am() {
@@ -55,27 +55,32 @@ sleepd() {
 
     # start reacting to messages
     time=$(get_uptime)
-    last_msg_ts=$time
-    last_ping_ts=0
+    ping_time=$((time+60))
+    ping_count=0
+    exit_time=$((time+3600*24))
     while read line
     do
         # check if logcat - sleepd - logwrapper loop is still working
         time=$(get_uptime)
         case "$line" in
         */sleepd*)
-            last_msg_ts=$time
+            ping_time=$((time+60))
+            ping_count=5
             ;;
         *)
-            if [ $((time-last_msg_ts)) -gt 60 ] && [ $((time-last_ping_ts)) -gt 5 ]
+            if [ $time -ge $ping_time ] && [ $ping_count -gt 0 ]
             then
-                if [ $((time-last_msg_ts)) -lt 90 ]
+                echo >&2 "ping"
+                ping_count=$((ping_count-1))
+                ping_time=$((time+5))
+                if [ $ping_count = 0 ]
                 then
-                    log "($time) ping"
-                    last_ping_ts=$time
-                else
-                    log "($time) exiting to induce restart"
-                    exit 33
+                    exit_time=$((time+5))
                 fi
+            elif [ $time -ge $exit_time ]
+            then
+                log "exiting to induce restart"
+                exit 33
             fi
             ;;
         esac
@@ -164,7 +169,7 @@ sleepd() {
             fi
             mode="mem"
             ;;
-        *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:|screen|Power|power}*)
+        *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:|screen|Power|power|POWER}*)
             log "$line"
             ;;
         *update_to_display*)
