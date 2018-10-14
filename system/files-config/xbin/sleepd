@@ -2,7 +2,13 @@
 
 if [ -z "$1" ]
 then
-    exec /system/bin/logwrapper "$0" wrapped
+    while true
+    do
+        /system/bin/logwrapper "$0" wrapped
+        rc=$?
+        [ $rc != 33 ] && break
+    done
+    exit $rc
 fi
 
 log() {
@@ -20,6 +26,12 @@ settings() {
 
 powerkey() {
     CLASSPATH=/system/framework/input.jar /system/bin/app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
+}
+
+get_uptime() {
+    local uptime
+    read uptime < /proc/uptime
+    echo ${uptime%%.*}
 }
 
 check_governor() {
@@ -42,8 +54,31 @@ sleepd() {
     done
 
     # start reacting to messages
+    time=$(get_uptime)
+    last_msg_ts=$time
+    last_ping_ts=0
     while read line
     do
+        # check if logcat - sleepd - logwrapper loop is still working
+        time=$(get_uptime)
+        case "$line" in
+        */sleepd*)
+            last_msg_ts=$time
+            ;;
+        *)
+            if [ $((time-last_msg_ts)) -gt 60 ] && [ $((time-last_ping_ts)) -gt 5 ]
+            then
+                if [ $((time-last_msg_ts)) -lt 90 ]
+                then
+                    log "($time) ping"
+                    last_ping_ts=$time
+                else
+                    log "($time) exiting to induce restart"
+                    exit 33
+                fi
+            fi
+        esac
+        # check for messages to react to
         case "$line" in
         */sleepd*state=0*)
             state_reached=0
@@ -62,7 +97,7 @@ sleepd() {
             ;;
         *showSystemImage:\ index:-1*)
             log "$line"
-            if [ $state_reached = 0 ]
+            if [ $state = 0 ]
             then
                 am broadcast -a refresh_screen
                 log "refresh_screen requested"
@@ -142,7 +177,7 @@ sleepd() {
 marker="== started sleepd $$ at $(busybox date) =="
 log "$marker"
 
-#/system/bin/busybox renice -15 $$
+#/system/bin/busybox renice -10 $$
 #echo 400000 > /sys/power/device_suspend_time_threshold
 /system/bin/busybox renice 19 $(/system/bin/busybox pgrep "mmcqd/1")
 
@@ -159,6 +194,7 @@ mode="on"
 #10-03 20:06:01.070 D/InputManager-JNI( 2371): handleInterceptActions: Waking up.
 #10-03 20:06:01.090 I/InputDispatcher( 2371): Dropped event because input dispatch is disabled.
 #10-03 20:06:01.090 D/pms     ( 2371): userActivityNoUpdateLocked: reject all events except the POWER/FORCE_WAKEUP key
+# can we do s.th. against loudspeaker clicks?
 
 # No use: Fixing brightness with
 # /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/actual_brightness
