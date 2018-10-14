@@ -77,6 +77,7 @@ sleepd() {
                     exit 33
                 fi
             fi
+            ;;
         esac
         # check for messages to react to
         case "$line" in
