@@ -65,17 +65,18 @@ sleepd() {
         case "$line" in
         */sleepd*)
             ping_time=$((time+60))
-            ping_count=5
+            ping_count=2
             ;;
         *)
             if [ $time -ge $ping_time ] && [ $ping_count -gt 0 ]
             then
-                echo >&2 "ping"
+                log "ping"
+                #echo >&2 "ping"
                 ping_count=$((ping_count-1))
                 ping_time=$((time+5))
                 if [ $ping_count = 0 ]
                 then
-                    exit_time=$((time+5))
+                    exit_time=$((time+1))
                 fi
             elif [ $time -ge $exit_time ]
             then
@@ -100,14 +101,6 @@ sleepd() {
             ;;
         */sleepd*)
             continue  # ignore own messages
-            ;;
-        *showSystemImage:\ index:-1*)
-            log "$line"
-            if [ $state = 0 ]
-            then
-                am broadcast -a refresh_screen
-                log "refresh_screen requested"
-            fi
             ;;
         *WindowManager\(*\):\ Window\ freeze\ timeout\ expired.*)
             log "$line"
@@ -138,6 +131,8 @@ sleepd() {
             fi
             mode="on"
             check_governor interactive
+            # Try to get rid of pops:
+            /system/bin/tinymix "Playback Volume" 250
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
             log "$line"
@@ -150,6 +145,8 @@ sleepd() {
             check_governor interactive
             # Probably of no use:
             echo "0" > /sys/class/graphics/fb0/blank
+            # Try to get rid of pops:
+            /system/bin/tinymix "Playback Volume" 250
             ;;
         *SYSTEM\ POWER\ STATE:\ \[mem\]*)
             log "$line"
@@ -168,6 +165,8 @@ sleepd() {
                 log "state=0"
             fi
             mode="mem"
+            # Try to get rid of pops:
+            /system/bin/tinymix "Playback Volume" 0
             ;;
         *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:|screen|Power|power|POWER}*)
             log "$line"
@@ -184,8 +183,13 @@ marker="== started sleepd $$ at $(busybox date) =="
 log "$marker"
 
 #/system/bin/busybox renice -10 $$
-#echo 400000 > /sys/power/device_suspend_time_threshold
+echo 400000 > /sys/power/device_suspend_time_threshold
 /system/bin/busybox renice 19 $(/system/bin/busybox pgrep "mmcqd/1")
+
+# Testing: Can we do s.th. against loudspeaker pops?
+/system/bin/tinymix "Capture Volume" 0
+/system/bin/tinymix "Right Boost Mixer RINPUT1 Switch" 0
+/system/bin/tinymix "Left Boost Mixer LINPUT1 Switch" 0
 
 #settings set system screen_off_timeout 300000
 log "System's screen off timeout is set to $(($(settings get system screen_off_timeout)/1000)) s"
@@ -200,7 +204,7 @@ mode="on"
 #10-03 20:06:01.070 D/InputManager-JNI( 2371): handleInterceptActions: Waking up.
 #10-03 20:06:01.090 I/InputDispatcher( 2371): Dropped event because input dispatch is disabled.
 #10-03 20:06:01.090 D/pms     ( 2371): userActivityNoUpdateLocked: reject all events except the POWER/FORCE_WAKEUP key
-# can we do s.th. against loudspeaker clicks?
+#10-15 09:30:04.330 W/audio_hw_primary( 2017): set parameters screen_state=off
 
 # No use: Fixing brightness with
 # /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/actual_brightness

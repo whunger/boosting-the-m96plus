@@ -598,7 +598,7 @@ service debuggerd /system/bin/debuggerd
 service surfaceflinger /system/bin/surfaceflinger
     class main
     user root
-    ioprio rt 8
+    #ioprio rt 8
     group graphics drmrpc
     onrestart restart zygote
 
