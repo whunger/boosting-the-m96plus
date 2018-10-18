@@ -13,7 +13,7 @@ fi
 
 log() {
     echo >&2 "$1"
-    [ -e "/mnt/sdcard/sleepd.log" ] && echo "$(busybox date) $1" >> /mnt/sdcard/sleepd.log
+    [ -e "/mnt/sdcard/sleepd.log" ] && echo "$(/system/bin/busybox date) $1" >> /mnt/sdcard/sleepd.log
 }
 
 am() {
@@ -58,6 +58,163 @@ sleepd() {
     ping_time=$((time+60))
     ping_count=0
     exit_time=$((time+3600*24))
+    mode="on"
+    suspend_time=0
+    state=0  # state for simulated PWRBTN pushes
+    while read line
+    do
+        time=$(get_uptime)
+        # check for messages to react to
+        trigger=""
+        case "$line" in
+        */sleepd*)
+            # Still in sync
+            ping_time=$((time+60))
+            ping_count=3
+            continue  # loop, do not interpret own log messages
+            ;;
+        *WindowManager\(*\):\ Window\ freeze\ timeout\ expired.*)
+            log "$line"
+            trigger="refresh_screen"
+            ;;
+        *showSystemImage:\ index:0*)
+            log "$line"
+            #trigger="show_wallpaper"
+            ;;
+        *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
+            log "$line"
+            trigger="show_wallpaper"
+            ;;
+        *handleInterceptActions:\ Not\ passing\ key\ to\ user*)
+            log "$line"
+            #trigger="show_wallpaper"
+            ;;
+        *Going\ to\ sleep\ by\ user\ request...*)
+            log "$line"
+            trigger="show_wallpaper"
+            ;;
+        *Going\ to\ sleep\ due\ to\ screen\ timeout...*)
+            log "$line"
+            #trigger="show_wallpaper"
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[mem\]*)
+            log "$line"
+            mode="mem"
+            trigger="show_wallpaper"
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[on\]*)
+            log "$line"
+            mode="on"
+            trigger="wakeup_or_sleep"
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[standby\]*)
+            log "$line"
+            mode="standby"
+            trigger="throttle"
+            ;;
+        *Excessive\ delay*)
+            log "$line"
+            ;;
+        *Going\ to\ sleep*)
+            log "$line"
+            ;;
+        *showSystemImage:*)
+            log "$line"
+            ;;
+        *handleInterceptActions:*)
+            log "$line"
+            ;;
+        *screen*)
+            log "$line"
+            ;;
+        *Power*)
+            log "$line"
+            ;;
+        *power*)
+            log "$line"
+            ;;
+        *POWER*)
+            log "$line"
+            ;;
+        *update_to_display*)
+            check_governor performance && log "$line"
+            ;;
+        esac
+        if [ $time -ge $ping_time ] && [ $ping_count -gt 0 ]
+        then
+            # check if logcat - sleepd - logwrapper loop is still working
+            log "ping"
+            #echo >&2 "ping"
+            ping_count=$((ping_count-1))
+            ping_time=$((time+5))
+            if [ $ping_count = 0 ]
+            then
+                exit_time=$((time+1))
+            fi
+        elif [ $time -ge $exit_time ]
+        then
+            log "exiting to induce restart"
+            exit 33
+        elif [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode = "on" ]
+        then
+            am broadcast -a refresh_screen
+            suspend_time=$((time+5))
+            log "refresh_screen requested"
+        elif [ "$trigger" = "show_wallpaper" ] && [ $time -gt $suspend_time ] && [ $state = 0 ]
+        then
+            check_governor performance
+            # Try to get rid of pops:
+            /system/bin/tinymix "Playback Volume" 0
+            powerkey
+            state=1
+            suspend_time=$((time+30))
+            log "first simulated power button push"
+        elif [ "$trigger" = "show_wallpaper" ] && [ $time -gt $suspend_time ] && [ $state -gt 0 ]
+        then
+            state=0  # time to do nothing, at last
+            suspend_time=$((time+5))
+        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state -gt 0 ]
+        then
+            powerkey
+            state=2
+            suspend_time=$((time+30))
+            log "second simulated power button push"
+        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 0 ]
+        then
+            check_governor interactive
+            # Restore volume
+            /system/bin/tinymix "Playback Volume" 250
+        elif [ "$trigger" = "throttle" ]
+        then
+            check_governor interactive
+            # Probably of no use:
+            echo "0" > /sys/class/graphics/fb0/blank
+        fi
+    done
+}
+
+go_to_sleep() {
+    /system/bin/busybox sleep 30
+    CLASSPATH=/system/framework/input.jar /system/bin/app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
+    /system/bin/busybox sleep 0.5
+    CLASSPATH=/system/framework/input.jar /system/bin/app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
+    /system/bin/busybox sleep 0.5
+    CLASSPATH=/system/framework/input.jar /system/bin/app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
+}
+
+sleepd2() {
+    # ignore log up to $marker
+    while read line
+    do
+        [ "$line" != "${line%$marker*}" ] && break
+    done
+
+    # start reacting to messages
+    time=$(get_uptime)
+    ping_time=$((time+60))
+    ping_count=0
+    exit_time=$((time+3600*24))
+    timeout_pid=""
     while read line
     do
         # check if logcat - sleepd - logwrapper loop is still working
@@ -86,19 +243,8 @@ sleepd() {
             ;;
         esac
         # check for messages to react to
+        kill_timeout=0
         case "$line" in
-        */sleepd*state=0*)
-            state_reached=0
-            continue
-            ;;
-        */sleepd*state=1*)
-            state_reached=1
-            continue
-            ;;
-        */sleepd*state=2*)
-            state_reached=2
-            continue
-            ;;
         */sleepd*)
             continue  # ignore own messages
             ;;
@@ -107,74 +253,85 @@ sleepd() {
             am broadcast -a refresh_screen
             log "refresh_screen requested"
             ;;
-        *{showSystemImage:\ index:0|updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state|handleInterceptActions:\ Not\ passing\ key\ to\ user|Going\ to\ sleep\ by\ user\ request...|Going\ to\ sleep\ due\ to\ screen\ timeout...}*)
-            log "$line"
-            if [ $state = 0 ]
-            then
-                check_governor performance
-                powerkey
-        		state=1
-                log "powerkey, state=1"
-            fi
-            ;;
         *SYSTEM\ POWER\ STATE:\ \[on\]*)
-            log "$line"
-            if [ $state = 1 ]
-            then
-                powerkey
-        		state=2
-                log "powerkey, state=2"
-            elif [ $state = 2 ]
-            then
-		        state=0
-                log "reset to state=0"
-            fi
-            mode="on"
+            kill_timeout=1
             check_governor interactive
+            # Try to get rid of pops:
+            /system/bin/tinymix "Playback Volume" 0
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[mem\]*)
+            kill_timeout=1
             # Try to get rid of pops:
             /system/bin/tinymix "Playback Volume" 250
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
             log "$line"
-            if [ $state -gt 0 ]
-            then
-        		state=0
-                log "reset to state=0"
-            fi
-            mode="standby"
+            go_to_sleep &
+            timeout_pid=$!
+            log "started $timeout_pid"
             check_governor interactive
-            # Probably of no use:
-            echo "0" > /sys/class/graphics/fb0/blank
             # Try to get rid of pops:
             /system/bin/tinymix "Playback Volume" 250
             ;;
-        *SYSTEM\ POWER\ STATE:\ \[mem\]*)
+        *audio_hw_primary*set\ parameters\ screen_state=off*)
             log "$line"
-            if [ $state = 0 ]
-            then
-                powerkey
-		        state=1
-                log "powerkey, state=1"
-            elif [ $state = 1 ]
-            then
-        		state=0
-                log "reset to state=0"
-            elif [ $state = 2 ]
-            then
-		        state=0
-                log "state=0"
-            fi
-            mode="mem"
             # Try to get rid of pops:
             /system/bin/tinymix "Playback Volume" 0
-            ;;
-        *{Excessive\ delay|Going\ to\ sleep|showSystemImage:|handleInterceptActions:|screen|Power|power|POWER}*)
-            log "$line"
             ;;
         *update_to_display*)
             check_governor performance && log "$line"
             ;;
+        *showSystemImage:\ index:0*)
+            log "$line"
+            ;;
+        *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
+            log "$line"
+            ;;
+        *handleInterceptActions:\ Not\ passing\ key\ to\ user*)
+            log "$line"
+            ;;
+        *Going\ to\ sleep\ by\ user\ request...*)
+            log "$line"
+            ;;
+        *Going\ to\ sleep\ due\ to\ screen\ timeout...*)
+            log "$line"
+            ;;
+        *Excessive\ delay*)
+            log "$line"
+            ;;
+        *Going\ to\ sleep*)
+            log "$line"
+            ;;
+        *showSystemImage:*)
+            log "$line"
+            ;;
+        *handleInterceptActions:*)
+            log "$line"
+            ;;
+        *screen*)
+            log "$line"
+            ;;
+        *Power*)
+            log "$line"
+            ;;
+        *power*)
+            log "$line"
+            ;;
+        *POWER*)
+            log "$line"
+            ;;
         esac
+        if [ $kill_timeout = 1 ]
+        then
+            log "$line"
+            kill_timeout=0
+            if [ -n "$timeout_pid" ]
+            then
+                /system/bin/busybox kill $timeout_pid
+                log "killed $timeout_pid"
+                timeout_pid=""
+            fi
+        fi
     done
 }
 
@@ -193,10 +350,6 @@ echo 400000 > /sys/power/device_suspend_time_threshold
 
 #settings set system screen_off_timeout 300000
 log "System's screen off timeout is set to $(($(settings get system screen_off_timeout)/1000)) s"
-
-state=0
-state_reached=0
-mode="on"
 
 /system/bin/logcat -b system -b main -b events | sleepd
 
