@@ -80,7 +80,7 @@ sleepd() {
             ;;
         *showSystemImage:\ index:-1*)
             log "$line"
-            trigger="refresh_screen"
+            #trigger="refresh_screen"
             ;;
         *showSystemImage:\ index:0*)
             log "$line"
@@ -89,6 +89,10 @@ sleepd() {
         *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
             log "$line"
             trigger="show_wallpaper"
+            ;;
+        *handleInterceptActions:\ Waking\ up*)
+            log "$line"
+            trigger="wakeup_or_sleep"
             ;;
         *handleInterceptActions:\ Not\ passing\ key\ to\ user*)
             log "$line"
@@ -116,6 +120,10 @@ sleepd() {
             log "$line"
             mode="standby"
             trigger="throttle"
+            ;;
+        *Excessive\ delay*while\ turning\ screen\ on*)
+            log "$line"
+            trigger="refresh_screen"
             ;;
         *Excessive\ delay*)
             log "$line"
@@ -163,45 +171,45 @@ sleepd() {
         elif [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode = "on" ]
         then
             am broadcast -a refresh_screen
-            suspend_time=$((time+5))
             log "refresh_screen requested"
+            suspend_time=$((time+5))
         elif [ "$trigger" = "show_wallpaper" ] && [ $time -gt $suspend_time ] && [ $state = 0 ]
         then
             check_governor performance
             # Try to get rid of pops:
             /system/bin/tinymix "Playback Volume" 0
             powerkey
+            log "first simulated power button push, state=1"
             state=1
             suspend_time=$((time+30))
             sequence_start_time=$time
-            log "first simulated power button push, state=1"
         elif [ "$trigger" = "show_wallpaper" ] && [ $state = 2 ]
         then
-            state=0  # time to do nothing, at last
             log "state=0"
-        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 0 ]
+            state=0  # time to do nothing, at last
+        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 1 ] && [ $((time-sequence_start_time)) -lt 5 ]
         then
-            check_governor interactive
-            # Restore volume
-            /system/bin/tinymix "Playback Volume" 250
-            log "wakeup"
+            powerkey
+            log "second simulated power button push, state=2"
+            state=2
         elif [ "$trigger" = "wakeup_or_sleep" ]
         then
-            if  [ $state = 1 ] && [ $((time-sequence_start_time)) -lt 5 ]
+            log "wakeup"
+            if [ $state -gt 0 ]
             then
-                powerkey
-                state=2
-                log "second simulated power button push, state=2"
-            else
                 state=0
                 log "reset to state=0"
             fi
+            check_governor interactive
+            # Restore volume
+            /system/bin/tinymix "Playback Volume" 250
+            suspend_time=$((time+10))
         elif [ "$trigger" = "throttle" ]
         then
+            log "throttle"
             check_governor interactive
             # Probably of no use:
             echo "0" > /sys/class/graphics/fb0/blank
-            log "throttle"
         fi
     done
 }
