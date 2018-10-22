@@ -84,7 +84,7 @@ sleepd() {
             ;;
         *showSystemImage:\ index:0*)
             log "$line"
-            trigger="show_wallpaper"
+            #trigger="show_wallpaper"
             ;;
         *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
             log "$line"
@@ -96,15 +96,15 @@ sleepd() {
             ;;
         *handleInterceptActions:\ Not\ passing\ key\ to\ user*)
             log "$line"
-            #trigger="show_wallpaper"
+            trigger="show_wallpaper"
             ;;
         *Going\ to\ sleep\ by\ user\ request...*)
             log "$line"
-            trigger="show_wallpaper"
+            #trigger="show_wallpaper"
             ;;
         *Going\ to\ sleep\ due\ to\ screen\ timeout...*)
             log "$line"
-            trigger="show_wallpaper"
+            #trigger="show_wallpaper"
             ;;
         *SYSTEM\ POWER\ STATE:\ \[mem\]*)
             log "$line"
@@ -183,15 +183,15 @@ sleepd() {
             state=1
             suspend_time=$((time+30))
             sequence_start_time=$time
-        elif [ "$trigger" = "show_wallpaper" ] && [ $state = 2 ]
-        then
-            log "state=0"
-            state=0  # time to do nothing, at last
         elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 1 ] && [ $((time-sequence_start_time)) -lt 5 ]
         then
             powerkey
             log "second simulated power button push, state=2"
             state=2
+        elif [ "$trigger" = "show_wallpaper" ] && [ $state = 2 ]
+        then
+            log "state=0, sleeping now"
+            state=0  # time to do nothing, at last
         elif [ "$trigger" = "wakeup_or_sleep" ]
         then
             log "wakeup"
