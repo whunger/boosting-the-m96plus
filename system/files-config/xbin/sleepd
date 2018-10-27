@@ -34,6 +34,20 @@ get_uptime() {
     echo ${uptime%%.*}
 }
 
+get_n_blocked() {
+    local label
+    local v0
+    local rest
+    while read label v0 rest
+    do
+        if [ "$label" == "procs_blocked" ]
+        then
+            echo $v0
+            break
+        fi
+    done < /proc/stat
+}
+
 check_governor() {
     local governor
     read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
@@ -230,9 +244,12 @@ sleepd() {
         elif [ "$trigger" = "throttle" ]
         then
             log "throttle"
-            check_governor interactive
-            # Probably of no use:
-            echo "0" > /sys/class/graphics/fb0/blank
+            if [ "$(get_n_blocked)" == "0" ]
+            then
+                check_governor interactive
+            else
+                check_governor performance
+            fi
         fi
     done
 }
