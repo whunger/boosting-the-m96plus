@@ -50,11 +50,23 @@ get_n_blocked() {
 
 check_governor() {
     local governor
-    read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-    if [ "$governor" != "$1" ]
+    local target
+    if [ "$1" == "auto" ]
     then
-        echo "$1" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-        log "set governor to $1"
+        if [ "$(get_n_blocked)" == "0" ]
+        then
+            target="interactive"
+        else
+            target="performance"
+        fi
+    else
+        target="$1"
+    fi
+    read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+    if [ "$governor" != "$target" ]
+    then
+        echo "$target" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+        log "set governor to $target"
         return 0
     fi
     return 1
@@ -90,7 +102,7 @@ sleepd() {
             ;;
         *WindowManager\(*\):\ Window\ freeze\ timeout\ expired.*)
             log "$line"
-            trigger="refresh_screen"
+            #trigger="refresh_screen"
             ;;
         *showSystemImage:\ index:-1*)
             log "$line"
@@ -137,7 +149,7 @@ sleepd() {
             ;;
         *Excessive\ delay*while\ turning\ screen\ on*)
             log "$line"
-            trigger="refresh_screen"
+            #trigger="refresh_screen"
             ;;
         *Excessive\ delay*)
             log "$line"
@@ -215,15 +227,14 @@ sleepd() {
         then
             suspend_time=$((time-1))
             log "wakeup (not sleep), suspend_time=$suspend_time"
-            check_governor interactive
+            check_governor auto
             # Restore volume
             /system/bin/tinymix "Playback Volume" 250
         elif [ "$trigger" = "wakeup_or_sleep" ]
         then
-            log "wakeup_or_sleep, but state=$state"
+            log "wakeup_or_sleep, but state=$state, requesting refresh and resetting state to 0"
             state=0
             am broadcast -a refresh_screen
-            log "refresh_screen requested, resetting state to 0"
         elif [ "$trigger" = "sleep" ] && [ $state = 2 ]
         then
             log "sleeping now, resetting state to 0"
@@ -231,25 +242,10 @@ sleepd() {
         elif [ "$trigger" = "sleep" ]
         then
             log "sleep, state=$state, ignoring"
-        elif [ "$trigger" = "wakeup" ] && [ $state = 0 ]
-        then
-            suspend_time=$((time-1))
-            log "wakeup, suspend_time=$suspend_time"
-            check_governor interactive
-            # Restore volume
-            /system/bin/tinymix "Playback Volume" 250
-        elif [ "$trigger" = "wakeup" ]
-        then
-            log "wakeup, but state=$state"
         elif [ "$trigger" = "throttle" ]
         then
             log "throttle"
-            if [ "$(get_n_blocked)" == "0" ]
-            then
-                check_governor interactive
-            else
-                check_governor performance
-            fi
+            check_governor auto
         fi
     done
 }

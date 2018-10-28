@@ -130,7 +130,7 @@ service sys_initd /system/bin/sys_init
 service onyx_tpd /system/bin/logwrapper /system/bin/onyx_tpd
     class main
     user root
-    #ioprio rt 1
+    ioprio rt 1
     oneshot
 
 service p2p_supplicant /system/bin/wpa_supplicant_rtw \
