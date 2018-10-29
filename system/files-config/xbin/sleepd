@@ -85,7 +85,7 @@ sleepd() {
     ping_count=0
     exit_time=$((time+3600*24))
     mode="on"
-    suspend_time=0
+    suspend_time=$((time+5))
     state=0  # state for simulated PWRBTN pushes
     sequence_start_time=0
     while read line
@@ -106,7 +106,7 @@ sleepd() {
             ;;
         *showSystemImage:\ index:-1*)
             log "$line"
-            trigger="refresh_screen"
+            #trigger="refresh_screen"
             ;;
         *showSystemImage:\ index:0*)
             log "$line"
@@ -180,13 +180,66 @@ sleepd() {
             state=0
             ;;
         esac
+
+        # state maintenance
         if [ $((time-sequence_start_time)) -gt 45 ]
         then
             state=0
         fi
+
+        # reactors
+        if [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode = "on" ]
+        then
+            am broadcast -a refresh_screen
+            log "refresh_screen: refresh_screen, suspend for 5 s"
+            suspend_time=$((time+5))
+            state=0
+        elif [ "$trigger" = "show_wallpaper" ] && [ $time -gt $suspend_time ]
+        then
+            check_governor performance
+            # Try to get rid of pops:
+            /system/bin/tinymix "Playback Volume" 0
+            powerkey
+            log "show_wallpaper: governor=performance, volume=0, powerkey (1), state=1, suspend for 30 s"
+            state=1
+            suspend_time=$((time+30))
+            sequence_start_time=$time
+        elif [ "$trigger" = "show_wallpaper" ]
+        then
+            log "show_wallpaper: ignored"
+        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 1 ]
+        then
+            am broadcast -a refresh_screen
+            powerkey
+            log "wakeup_or_sleep: refresh_screen, powerkey (2), state=2"
+            state=2
+        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 0 ]
+        then
+            log "wakeup_or_sleep: wakeup, governor=auto, volume restore"
+            check_governor auto
+            # Restore volume
+            /system/bin/tinymix "Playback Volume" 250
+        elif [ "$trigger" = "wakeup_or_sleep" ]
+        then
+            log "wakeup_or_sleep: state=$state? >> refresh_screen, state=0"
+            state=0
+            am broadcast -a refresh_screen
+        elif [ "$trigger" = "sleep" ] && [ $state = 2 ]
+        then
+            log "sleep: state=0"
+            state=0  # time to do nothing, at last
+        elif [ "$trigger" = "sleep" ]
+        then
+            log "sleep: state=$state? >> ignored"
+        elif [ "$trigger" = "throttle" ]
+        then
+            log "throttle: governor=auto"
+            check_governor auto
+        fi
+
+        # check if logcat - sleepd - logwrapper loop is still working
         if [ $time -ge $ping_time ] && [ $ping_count -gt 0 ]
         then
-            # check if logcat - sleepd - logwrapper loop is still working
             log "ping"
             #echo >&2 "ping"
             ping_count=$((ping_count-1))
@@ -199,53 +252,6 @@ sleepd() {
         then
             log "exiting to induce restart"
             exit 33
-        elif [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode = "on" ]
-        then
-            am broadcast -a refresh_screen
-            log "refresh_screen requested"
-            suspend_time=$((time+5))
-            state=0
-        elif [ "$trigger" = "show_wallpaper" ] && [ $time -gt $suspend_time ]
-        then
-            check_governor performance
-            # Try to get rid of pops:
-            /system/bin/tinymix "Playback Volume" 0
-            powerkey
-            log "first simulated power button push, state=1"
-            state=1
-            suspend_time=$((time+30))
-            sequence_start_time=$time
-        elif [ "$trigger" = "show_wallpaper" ]
-        then
-            log "show_wallpaper, ignored"
-        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 1 ]
-        then
-            powerkey
-            log "second simulated power button push, state=2"
-            state=2
-        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 0 ]
-        then
-            suspend_time=$((time-1))
-            log "wakeup (not sleep), suspend_time=$suspend_time"
-            check_governor auto
-            # Restore volume
-            /system/bin/tinymix "Playback Volume" 250
-        elif [ "$trigger" = "wakeup_or_sleep" ]
-        then
-            log "wakeup_or_sleep, but state=$state, requesting refresh and resetting state to 0"
-            state=0
-            am broadcast -a refresh_screen
-        elif [ "$trigger" = "sleep" ] && [ $state = 2 ]
-        then
-            log "sleeping now, resetting state to 0"
-            state=0  # time to do nothing, at last
-        elif [ "$trigger" = "sleep" ]
-        then
-            log "sleep, state=$state, ignoring"
-        elif [ "$trigger" = "throttle" ]
-        then
-            log "throttle"
-            check_governor auto
         fi
     done
 }
@@ -273,6 +279,8 @@ log "System's screen off timeout is set to $(($(settings get system screen_off_t
 #10-03 20:06:01.090 I/InputDispatcher( 2371): Dropped event because input dispatch is disabled.
 #10-03 20:06:01.090 D/pms     ( 2371): userActivityNoUpdateLocked: reject all events except the POWER/FORCE_WAKEUP key
 #10-15 09:30:04.330 W/audio_hw_primary( 2017): set parameters screen_state=off
+
+# Can refresh help to force wallpaper display?
 
 # No use: Fixing brightness with
 # /sys/devices/platform/pwm-backlight.0/backlight/pwm-backlight.0/actual_brightness
