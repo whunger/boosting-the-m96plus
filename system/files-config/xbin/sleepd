@@ -81,6 +81,7 @@ sleepd() {
 
     # start reacting to messages
     time=$(get_uptime)
+    last_line_ts=${line:0:14}  # 10-30 01:50:39
     ping_time=$((time+60))
     ping_count=0
     exit_time=$((time+3600*24))
@@ -90,7 +91,12 @@ sleepd() {
     sequence_start_time=0
     while read line
     do
-        time=$(get_uptime)
+        line_ts=${line:0:14}
+        if [ "$last_line_ts" != "$line_ts" ]
+        then
+            time=$(get_uptime)
+            last_line_ts=$line_ts
+        fi
         # check for messages to react to
         trigger=""
         case "$line" in
@@ -190,16 +196,17 @@ sleepd() {
         # reactors
         if [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode = "on" ]
         then
-            am broadcast -a refresh_screen
+            am broadcast -a refresh_screen &
             log "refresh_screen: refresh_screen, suspend for 5 s"
             suspend_time=$((time+5))
             state=0
         elif [ "$trigger" = "show_wallpaper" ] && [ $time -gt $suspend_time ]
         then
             check_governor performance
+            am broadcast -a refresh_screen &
             # Try to get rid of pops:
             /system/bin/tinymix "Playback Volume" 0
-            powerkey
+            powerkey &
             log "show_wallpaper: governor=performance, volume=0, powerkey (1), state=1, suspend for 30 s"
             state=1
             suspend_time=$((time+30))
@@ -209,8 +216,8 @@ sleepd() {
             log "show_wallpaper: ignored"
         elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 1 ]
         then
-            am broadcast -a refresh_screen
-            powerkey
+            am broadcast -a refresh_screen &
+            powerkey &
             log "wakeup_or_sleep: refresh_screen, powerkey (2), state=2"
             state=2
         elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 0 ]
@@ -223,7 +230,7 @@ sleepd() {
         then
             log "wakeup_or_sleep: state=$state? >> refresh_screen, state=0"
             state=0
-            am broadcast -a refresh_screen
+            am broadcast -a refresh_screen &
         elif [ "$trigger" = "sleep" ] && [ $state = 2 ]
         then
             log "sleep: state=0"
@@ -279,6 +286,8 @@ log "System's screen off timeout is set to $(($(settings get system screen_off_t
 #10-03 20:06:01.090 I/InputDispatcher( 2371): Dropped event because input dispatch is disabled.
 #10-03 20:06:01.090 D/pms     ( 2371): userActivityNoUpdateLocked: reject all events except the POWER/FORCE_WAKEUP key
 #10-15 09:30:04.330 W/audio_hw_primary( 2017): set parameters screen_state=off
+#Screen released, type=0 flinger=0x410d0690
+#screen update disabled
 
 # Can refresh help to force wallpaper display?
 
