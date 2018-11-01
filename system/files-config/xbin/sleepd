@@ -188,14 +188,14 @@ sleepd() {
             ;;
         *update_to_display*)
             check_governor performance && log "$line"
-            state=0
             ;;
         esac
 
         # state maintenance
-        if [ $((time-sequence_start_time)) -gt 45 ]
+        if [ $state != 0 ] && [ $((time-sequence_start_time)) -gt 150 ]
         then
             state=0
+            log "reset state to 0 because workaround sequence start is too long ago"
         fi
 
         # reactors
@@ -221,8 +221,8 @@ sleepd() {
             state=2
         elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 2 ]
         then
-            powerkey &
-            log "$trigger: powerkey (2), state=3"
+            (am broadcast -a refresh_screen ; powerkey) &
+            log "$trigger: refresh_screen + powerkey (2), state=3"
             state=3
         elif [ "$trigger" = "sleep" ] && [ $state = 3 ]
         then
@@ -295,7 +295,7 @@ echo 400000 > /sys/power/device_suspend_time_threshold
 /system/bin/tinymix "Right Boost Mixer RINPUT1 Switch" 0
 /system/bin/tinymix "Left Boost Mixer LINPUT1 Switch" 0
 
-#settings set system screen_off_timeout 300000
+#settings put system screen_off_timeout 30000
 log "System's screen off timeout is set to $(($(settings get system screen_off_timeout)/1000)) s"
 
 /system/bin/logcat -b system -b main -b events | sleepd
