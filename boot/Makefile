@@ -21,7 +21,7 @@ boot-patched.img: boot-orig ramdisk-patched.gz Makefile
 	../tools/mkbootimg/mkbootimg \
 	  --kernel boot-orig/boot.img-zImage \
 	  --ramdisk ramdisk-patched.gz \
-	  --cmdline "console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_OD2,bpp=24 epdc consoleblank=0 androidboot.hardware=freescale" \
+	  --cmdline "console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_OD2,bpp=16 epdc androidboot.hardware=freescale" \
 	  --base 80800000 \
 	  -o boot-patched.img
 
@@ -29,6 +29,7 @@ boot-patched.img: boot-orig ramdisk-patched.gz Makefile
 # nok --cmdline "console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_V110,bpp=16 video=mxc_elcdif_fb:off" \
 # ok  --cmdline "console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_V110,bpp=16 epdc androidboot.hardware=freescale" \
 # ok  --cmdline "console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_V110,bpp=16 epdc consoleblank=0 androidboot.hardware=freescale" \
+# ok  --cmdline "console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_OD2,bpp=32 epdc consoleblank=0 androidboot.hardware=freescale" \
 # 4.4.4: console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_OD2,bpp=16 epdc androidboot.hardware=freescale
 # 1.8.2: console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_V110,bpp=16 video=mxc_elcdif_fb:off
 
