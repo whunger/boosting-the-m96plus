@@ -158,6 +158,14 @@ sleepd() {
             mode="standby"
             trigger="throttle"
             ;;
+        *SYSTEM\ POWER\ STATE:\ \[\]*)
+            log "$line"
+            trigger="restart_power_service"
+            ;;
+        *SYSTEM\ POWER\ STATE:*)
+            log "$line"
+            log "Unknown power state!"
+            ;;
         *Excessive\ delay*while\ turning\ screen\ on*)
             log "$line"
             #trigger="refresh_screen"
@@ -199,7 +207,14 @@ sleepd() {
         fi
 
         # reactors
-        if [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode = "on" ]
+        if [ "$trigger" = "restart_power_service" ]
+        then
+            log "restarting power service"
+            stop power
+            start power
+            log "exiting to induce restart"
+            exit 33
+        elif [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode = "on" ]
         then
             am broadcast -a refresh_screen &
             log "$trigger: refresh_screen, suspend for 5 s"
