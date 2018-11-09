@@ -72,10 +72,28 @@ check_governor() {
     return 1
 }
 
+change_mode() {
+    local mode
+    mode=$1
+    case "$2" in
+    *SYSTEM\ POWER\ STATE:\ \[mem\]*)
+        mode="mem"
+        ;;
+    *SYSTEM\ POWER\ STATE:\ \[on\]*)
+        mode="on"
+        ;;
+    *SYSTEM\ POWER\ STATE:\ \[standby\]*)
+        mode="standby"
+        ;;
+    esac
+    echo $mode
+}
+
 sleepd() {
     # ignore log up to $marker
     while read line
     do
+        mode=$(change_mode "$mode" "$line")
         [ "$line" != "${line%$marker*}" ] && break
     done
 
@@ -85,11 +103,14 @@ sleepd() {
     ping_time=$((time+60))
     ping_count=0
     exit_time=$((time+3600*24))
-    mode="on"
     suspend_time=$((time+5))
     state=0  # state for simulated PWRBTN presses
-    sequence_start_time=0
-    refresh_allowed=1
+    if [ $mode = "mem" ]
+    then
+        sequence_start_time=$time
+    else
+        sequence_start_time=0
+    fi
     while read line
     do
         line_ts=${line:0:14}
@@ -145,17 +166,14 @@ sleepd() {
             ;;
         *SYSTEM\ POWER\ STATE:\ \[mem\]*)
             log "$line"
-            mode="mem"
             trigger="sleep"
             ;;
         *SYSTEM\ POWER\ STATE:\ \[on\]*)
             log "$line"
-            mode="on"
             trigger="wakeup_or_sleep"
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
             log "$line"
-            mode="standby"
             trigger="throttle"
             ;;
         *SYSTEM\ POWER\ STATE:\ \[\]*)
@@ -200,11 +218,11 @@ sleepd() {
         esac
 
         # state maintenance
-        if [ $state != 0 ] && [ $((time-sequence_start_time)) -gt 150 ]
-        then
-            state=0
-            log "reset state to 0 because workaround sequence start is too long ago"
-        fi
+        #if [ $state -gt 1 ] && [ $state -lt 4 ] && [ $((time-sequence_start_time)) -gt 150 ]
+        #then
+        #    state=0
+        #    log "reset state to 0 because workaround sequence start is too long ago"
+        #fi
 
         # reactors
         if [ "$trigger" = "restart_power_service" ]
@@ -214,13 +232,13 @@ sleepd() {
             start power
             log "exiting to induce restart"
             exit 33
-        elif [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode = "on" ]
+        elif [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode != "mem" ]
         then
             am broadcast -a refresh_screen &
             log "$trigger: refresh_screen, suspend for 5 s"
             suspend_time=$((time+5))
             state=0
-        elif [ "$trigger" = "enter_suspend" ] && [ $time -gt $suspend_time ]
+        elif [ "$trigger" = "enter_suspend" ] && [ $time -gt $suspend_time ] && [ $sequence_start_time = 0 ]
         then
             check_governor performance
             # Try to get rid of pops:
@@ -229,54 +247,44 @@ sleepd() {
             state=1
             suspend_time=$((time+30))
             sequence_start_time=$time
-        elif [ "$trigger" = "show_wallpaper" ] && [ $state = 1 ]
+        elif [ "$trigger" = "show_wallpaper" ] && [ $((time-sequence_start_time)) -lt 5 ]
         then
             powerkey &
             log "$trigger: powerkey (1), state=2"
             state=2
-        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 2 ]
+        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $((time-sequence_start_time)) -lt 45 ]
         then
             (am broadcast -a refresh_screen ; powerkey) &
             log "$trigger: refresh_screen + powerkey (2), state=3"
             state=3
-        elif [ "$trigger" = "sleep" ] && [ $state = 3 ]
+        elif [ "$trigger" = "sleep" ] && [ $((time-sequence_start_time)) -lt 90 ]
         then
-            log "$trigger: state=0, reset suspend, refresh_allowed=1, sleeping now ..."
-            state=0  # time to do nothing, at last
-            suspend_time=0
-            refresh_allowed=1
-        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $state = 0 ]
+            log "$trigger: state=4, sleeping now ..."
+            state=4  # time to do nothing, at last
+        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $sequence_start_time -gt 0 ]
         then
-            log "$trigger: wakeup, governor=auto, volume restore, reset suspend"
-            check_governor auto
+            log "$trigger: wakeup, governor=performance, volume restore, state=0, suspend for 5 s, refresh_screen"
+            check_governor performance
             # Restore volume
             /system/bin/tinymix "Playback Volume" 250
-            suspend_time=0
-            if [ $refresh_allowed = 1 ]
-            then
-                refresh_allowed=0
-                am broadcast -a refresh_screen &
-                log "$trigger: refresh_screen, refresh_allowed=0"
-            fi
-        elif [ "$trigger" = "wakeup_or_sleep" ]
-        then
-            log "$trigger: state=$state? >> refresh_screen, state=0, reset suspend"
             state=0
-            suspend_time=0
-            if [ $refresh_allowed = 1 ]
-            then
-                refresh_allowed=0
-                am broadcast -a refresh_screen &
-                log "$trigger: refresh_screen, refresh_allowed=0"
-            fi
-        elif [ "$trigger" = "throttle" ]
+            sequence_start_time=0
+            suspend_time=$((time+5))
+            am broadcast -a refresh_screen &
+        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $sequence_start_time = 0 ]
+        then
+            log "$trigger: governor=performance"
+            check_governor performance
+        elif [ "$trigger" = "throttle" ] && [ $sequence_start_time = 0 ]
         then
             log "throttle: governor=auto"
             check_governor auto
         elif [ -n "$trigger" ]
         then
-            log "$trigger: ignored, state=$state, suspend_time=$suspend_time"
+            log "$trigger: ignored, state=$state, dsuspend=$((suspend_time-time)), mode=$mode, dsst=$((time-sequence_start_time))"
         fi
+
+        mode=$(change_mode "$mode" "$line")
 
         # check if logcat - sleepd - logwrapper loop is still working
         if [ $time -ge $ping_time ] && [ $ping_count -gt 0 ]
