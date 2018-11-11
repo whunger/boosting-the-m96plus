@@ -104,7 +104,6 @@ sleepd() {
     ping_count=0
     exit_time=$((time+3600*24))
     suspend_time=$((time+5))
-    state=0  # state for simulated PWRBTN presses
     if [ $mode = "mem" ]
     then
         sequence_start_time=$time
@@ -138,7 +137,10 @@ sleepd() {
             ;;
         *showSystemImage:\ index:0*)
             log "$line"
-            trigger="show_wallpaper"
+            if [ $((time-sequence_start_time)) -lt 5 ]
+            then
+                trigger="workaround_step_1"
+            fi
             ;;
         *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
             log "$line"
@@ -153,6 +155,7 @@ sleepd() {
             #trigger="enter_suspend"
             ;;
         *Going\ to\ sleep\ by\ user\ request...*)
+            # Real PWRBTN press by user? /!\
             log "$line"
             trigger="enter_suspend"
             ;;
@@ -166,15 +169,30 @@ sleepd() {
             ;;
         *SYSTEM\ POWER\ STATE:\ \[mem\]*)
             log "$line"
-            trigger="sleep"
+            if [ $((time-sequence_start_time)) -lt 90 ]
+            then
+                trigger="sleep"
+            fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[on\]*)
             log "$line"
-            trigger="wakeup_or_sleep"
+            if [ $((time-sequence_start_time)) -lt 45 ]
+            then
+                trigger="workaround_step_2"
+            elif [ $sequence_start_time -gt 0 ]
+            then
+                trigger="wakeup"
+            elif [ $sequence_start_time = 0 ]
+            then
+                trigger="activity"
+            fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
             log "$line"
-            trigger="throttle"
+            if [ $sequence_start_time = 0 ]
+            then
+                trigger="throttle"
+            fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[\]*)
             log "$line"
@@ -183,6 +201,10 @@ sleepd() {
         *SYSTEM\ POWER\ STATE:*)
             log "$line"
             log "Unknown power state!"
+            ;;
+        *Unblocked\ screen\ on\ after*)
+            log "$line"
+            trigger="wakeup"
             ;;
         *Excessive\ delay*while\ turning\ screen\ on*)
             log "$line"
@@ -217,13 +239,6 @@ sleepd() {
             ;;
         esac
 
-        # state maintenance
-        #if [ $state -gt 1 ] && [ $state -lt 4 ] && [ $((time-sequence_start_time)) -gt 150 ]
-        #then
-        #    state=0
-        #    log "reset state to 0 because workaround sequence start is too long ago"
-        #fi
-
         # reactors
         if [ "$trigger" = "restart_power_service" ]
         then
@@ -232,56 +247,53 @@ sleepd() {
             start power
             log "exiting to induce restart"
             exit 33
-        elif [ "$trigger" = "refresh_screen" ] && [ $time -gt $suspend_time ] && [ $mode != "mem" ]
+        elif [ "$trigger" = "workaround_step_1" ]
+        then
+            powerkey &
+            log "$trigger: powerkey (1)"
+        elif [ "$trigger" = "workaround_step_2" ]
+        then
+            (am broadcast -a refresh_screen ; powerkey) &
+            log "$trigger: refresh_screen + powerkey (2)"
+        elif [ "$trigger" = "sleep" ]
+        then
+            log "$trigger: sleeping now ..."
+        elif [ "$trigger" = "wakeup" ]
+        then
+            log "$trigger: governor=performance, volume restore, suspend for 5 s, refresh_screen"
+            check_governor performance
+            # Restore volume
+            /system/bin/tinymix "Playback Volume" 250
+            sequence_start_time=0
+            suspend_time=$((time+5))
+            am broadcast -a refresh_screen &
+        elif [ -n "$trigger" ] && [ $time -le $suspend_time ]
+        then
+            log "$trigger: ignored due to suspend time: $((suspend_time-time)) s left"
+        elif [ "$trigger" = "refresh_screen" ] && [ $mode != "mem" ]
         then
             am broadcast -a refresh_screen &
             log "$trigger: refresh_screen, suspend for 5 s"
             suspend_time=$((time+5))
-            state=0
-        elif [ "$trigger" = "enter_suspend" ] && [ $time -gt $suspend_time ] && [ $sequence_start_time = 0 ]
+        elif [ "$trigger" = "enter_suspend" ] && [ $sequence_start_time = 0 ]
         then
             check_governor performance
             # Try to get rid of pops:
             /system/bin/tinymix "Playback Volume" 0
-            log "$trigger: governor=performance, volume=0, state=1, suspend for 30 s"
-            state=1
+            log "$trigger: governor=performance, volume=0, suspend for 30 s"
             suspend_time=$((time+30))
             sequence_start_time=$time
-        elif [ "$trigger" = "show_wallpaper" ] && [ $((time-sequence_start_time)) -lt 5 ]
-        then
-            powerkey &
-            log "$trigger: powerkey (1), state=2"
-            state=2
-        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $((time-sequence_start_time)) -lt 45 ]
-        then
-            (am broadcast -a refresh_screen ; powerkey) &
-            log "$trigger: refresh_screen + powerkey (2), state=3"
-            state=3
-        elif [ "$trigger" = "sleep" ] && [ $((time-sequence_start_time)) -lt 90 ]
-        then
-            log "$trigger: state=4, sleeping now ..."
-            state=4  # time to do nothing, at last
-        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $sequence_start_time -gt 0 ]
-        then
-            log "$trigger: wakeup, governor=performance, volume restore, state=0, suspend for 5 s, refresh_screen"
-            check_governor performance
-            # Restore volume
-            /system/bin/tinymix "Playback Volume" 250
-            state=0
-            sequence_start_time=0
-            suspend_time=$((time+5))
-            am broadcast -a refresh_screen &
-        elif [ "$trigger" = "wakeup_or_sleep" ] && [ $sequence_start_time = 0 ]
+        elif [ "$trigger" = "activity" ]
         then
             log "$trigger: governor=performance"
             check_governor performance
-        elif [ "$trigger" = "throttle" ] && [ $sequence_start_time = 0 ]
+        elif [ "$trigger" = "throttle" ]
         then
             log "throttle: governor=auto"
             check_governor auto
         elif [ -n "$trigger" ]
         then
-            log "$trigger: ignored, state=$state, dsuspend=$((suspend_time-time)), mode=$mode, dsst=$((time-sequence_start_time))"
+            log "$trigger: ignored, delta suspend=$((suspend_time-time)), mode=$mode, delta seq start=$((time-sequence_start_time))"
         fi
 
         mode=$(change_mode "$mode" "$line")
@@ -310,8 +322,12 @@ marker="== started sleepd $$ at $(busybox date) =="
 log "$marker"
 
 #/system/bin/busybox renice -10 $$
-echo 400000 > /sys/power/device_suspend_time_threshold
-/system/bin/busybox renice 19 $(/system/bin/busybox pgrep "mmcqd/1")
+#log "Increased priority of sleepd"
+
+echo 1000000 > /sys/power/device_suspend_time_threshold
+log "Increased device_suspend_time_threshold=$(cat /sys/power/device_suspend_time_threshold)"
+
+#/system/bin/busybox renice 19 $(/system/bin/busybox pgrep "mmcqd/1")
 
 # Testing: Can we do s.th. against loudspeaker pops?
 /system/bin/tinymix "Capture Volume" 0
