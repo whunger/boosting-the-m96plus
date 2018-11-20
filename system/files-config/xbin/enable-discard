@@ -1,0 +1,7 @@
+#!/system/bin/sh
+
+for mp in /data /storage/sdcard /mnt/extsd
+do
+    [ -d "$mp" ] && /system/xbin/mount.static -o remount,discard "$mp"
+done
+
