@@ -29,4 +29,4 @@ chown 0:0 /system/xbin/.tmpsu
 chown 0:0 /system/xbin/supolicy
 chown 0:0 /system/xbin/daemonsu_old
 
-mount -o remount,ro /system
+#mount -o remount,ro /system
