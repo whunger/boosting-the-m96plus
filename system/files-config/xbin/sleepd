@@ -92,7 +92,8 @@ change_mode() {
 check_discard() {
     for mp in /data /storage/sdcard /mnt/extsd
     do
-        [ -d "$mp" ] && /system/xbin/mount.static -o remount,discard "$mp"
+        #[ -d "$mp" ] && /system/xbin/mount.static -o remount,discard "$mp"
+        [ -d "$mp" ] && /system/bin/mount -o remount,discard "$mp"
     done
 }
 
@@ -170,7 +171,10 @@ sleepd() {
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
             log "$line"
-            if [ $sequence_start_time = 0 ]
+            if [ "$mode" = "mem" ]
+            then
+                trigger="wakeup"
+            elif [ $mode = "on" ]
             then
                 trigger="throttle"
             fi
@@ -273,6 +277,7 @@ sleepd() {
                 check_governor performance
                 # Restore volume
                 /system/bin/tinymix "Playback Volume" 250
+                sequence_start_time=0
                 suspend_time=$((time+5))
                 am broadcast -a refresh_screen &
                 check_discard
@@ -306,8 +311,9 @@ sleepd() {
             then
                 log "$trigger: ignored, delta suspend=$((suspend_time-time)), mode=$mode, delta seq start=$((time-sequence_start_time))"
             fi
-            mode=$(change_mode "$mode" "$line")
         fi
+        
+        mode=$(change_mode "$mode" "$line")
 
         # check if logcat - sleepd - logwrapper loop is still working
         if [ $time -ge $ping_time ] && [ $ping_count -gt 0 ]
