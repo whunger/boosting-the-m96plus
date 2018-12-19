@@ -15,12 +15,12 @@ all: install-wf
 # V220_C073_97_WNA301_ED097OC4_BTC.fw: sharp, but noisy, some ghosting
 # V220_C209_97_WJ5531_OC4_BTC.fw: much darker, ghosting
 # V220_C212_97_WN2642_ED097OD2_CTC.fw: some ghosting
-# V220_C228_97_WN3B41_ED097OD2_CTC.fw: very good, similar to WN3B42
+# V220_C228_97_WN3B41_ED097OD2_CTC.fw: very good, similar to WN3B42, but no full screen redraws all the time. But many crashes of apps and os instead?
 # V220_C228_97_WN3B41_ED097TC1_CTC.fw: quite good overall, hangs sometimes?
 # V220_C228_97_WN3B42_ED097OD2_CTC.fw: almost no ghosting, not as sharp as WN6441? Full screen redraw on transition standby -> on?
 # V220_C243_97_WN6441_ED097OD2_CTC.fw: ghosting, good contrast, fast
 
-EPDC := V220_C228_97_WN3B41_ED097OD2_CTC
+EPDC := V220_C228_97_WN3B41_ED097TC1_CTC
 
 install-wf: wf.zip
 	adb shell "cat /dev/null > /vendor/firmware/imx/epdc.fw"
