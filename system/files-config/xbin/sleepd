@@ -318,8 +318,8 @@ sleepd() {
         # check if logcat - sleepd - logwrapper loop is still working
         if [ $time -ge $ping_time ] && [ $ping_count -gt 0 ]
         then
-            log "ping"
-            #echo >&2 "ping"
+            #log "ping"
+            echo >&2 "ping"
             ping_count=$((ping_count-1))
             ping_time=$((time+5))
             if [ $ping_count = 0 ]
