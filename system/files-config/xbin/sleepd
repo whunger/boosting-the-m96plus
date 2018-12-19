@@ -55,7 +55,7 @@ check_governor() {
     then
         if [ "$(get_n_blocked)" == "0" ]
         then
-            target="interactive"
+            target="ondemand"
         else
             target="performance"
         fi
@@ -340,6 +340,9 @@ log "$marker"
 
 #busybox renice -10 $$
 #log "Increased priority of sleepd"
+
+#setprop sys.interactive active
+#log "setprop sys.interactive active"
 
 echo 1000000 > /sys/power/device_suspend_time_threshold
 log "Increased device_suspend_time_threshold=$(cat /sys/power/device_suspend_time_threshold)"
