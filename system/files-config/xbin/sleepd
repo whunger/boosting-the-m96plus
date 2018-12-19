@@ -280,9 +280,11 @@ sleepd() {
             #    pwr_count=$((pwr_count-1))
             elif [ "$trigger" = "workaround_step_2" ]
             then
-                (am broadcast -a refresh_screen ; powerkey) &
+                powerkey &
+                #(am broadcast -a refresh_screen ; powerkey) &
                 pwr_count=$((pwr_count-1))
-                log "$trigger: refresh_screen + powerkey ($pwr_count)"
+                #log "$trigger: refresh_screen + powerkey ($pwr_count)"
+                log "$trigger: powerkey ($pwr_count)"
             elif [ "$trigger" = "sleep" ]
             then
                 log "$trigger: sleeping now ..."
@@ -292,8 +294,8 @@ sleepd() {
                 log "$trigger: governor=performance, suspend for 15 s, refresh_screen, check_discard, restart power service, speaker off"
                 check_governor performance
                 sequence_start_time=0
-                suspend_time=$((time+5))
-                am broadcast -a refresh_screen &
+                suspend_time=$((time+15))
+                am broadcast -a refresh_screen
                 check_discard
             elif [ -n "$trigger" ] && [ $time -le $suspend_time ]
             then
@@ -310,12 +312,13 @@ sleepd() {
             elif [ "$trigger" = "refresh_screen" ]
             then
                 am broadcast -a refresh_screen &
-                log "$trigger: refresh_screen, suspend for 5 s"
-                suspend_time=$((time+5))
+                log "$trigger: refresh_screen, suspend for 15 s"
+                suspend_time=$((time+15))
             elif [ "$trigger" = "activity" ]
             then
-                log "$trigger: governor=performance"
+                log "$trigger: governor=performance, suspend for 15 s"
                 check_governor performance
+                suspend_time=$((time+15))
             elif [ "$trigger" = "throttle" ]
             then
                 log "$trigger: governor=auto"
@@ -324,6 +327,9 @@ sleepd() {
             then
                 log "$trigger: ignored, delta suspend=$((suspend_time-time)), mode=$mode, delta seq start=$((time-sequence_start_time))"
             fi
+            # Still in sync
+            ping_time=$((time+60))
+            ping_count=3
         fi
         
         mode=$(change_mode "$mode" "$line")
