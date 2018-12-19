@@ -119,6 +119,10 @@ on boot
     # Disable KEYGUARD
     #setprop ro.ONYX_DISABLE_KEYGUARD 1
 
+    # Trying to get rid of clicks
+    #write /sys/devices/platform/imx-wm8960.0/power/control on
+    #write /sys/devices/platform/imx-wm8960.0/power/autosuspend_delay_ms -1
+
 # mount the debugfs
     mount debugfs none /sys/kernel/debug/
 
