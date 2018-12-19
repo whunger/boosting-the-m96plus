@@ -330,8 +330,8 @@ on boot
     # Tweak background writeout
     #write /proc/sys/vm/dirty_expire_centisecs 150
     #write /proc/sys/vm/dirty_writeback_centisecs 3000
-    #write /proc/sys/vm/dirty_background_ratio 5
-    #write /proc/sys/vm/dirty_ratio 80
+    write /proc/sys/vm/dirty_background_ratio 5
+    write /proc/sys/vm/dirty_ratio 50
 
     # Tweak the mmc device read ahead buffer size
     # https://forum.xda-developers.com/general/general/ref-to-date-guide-cpu-governors-o-t3048957
