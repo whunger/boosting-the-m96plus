@@ -113,7 +113,7 @@ sleepd() {
     exit_time=$((time+3600*24))
     suspend_time=$((time+5))
     pwr_count=0
-    if [ $mode = "mem" ]
+    if [ "$mode" = "mem" ]
     then
         sequence_start_time=$time
     else
@@ -174,7 +174,7 @@ sleepd() {
             if [ "$mode" = "mem" ]
             then
                 trigger="wakeup"
-            elif [ $mode = "on" ]
+            elif [ "$mode" = "on" ]
             then
                 trigger="throttle"
             fi
