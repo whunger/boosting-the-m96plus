@@ -4,7 +4,7 @@ if [ -z "$1" ]
 then
     while true
     do
-        /system/bin/logwrapper "$0" wrapped
+        logwrapper "$0" wrapped
         rc=$?
         [ $rc != 33 ] && break
     done
@@ -17,15 +17,15 @@ log() {
 }
 
 am() {
-    CLASSPATH=/system/framework/am.jar /system/bin/app_process /system/bin com.android.commands.am.Am "$@"
+    CLASSPATH=/system/framework/am.jar app_process /system/bin com.android.commands.am.Am "$@"
 }
 
 settings() {
-    CLASSPATH=/system/framework/settings.jar /system/bin/app_process /system/bin com.android.commands.settings.SettingsCmd "$@"
+    CLASSPATH=/system/framework/settings.jar app_process /system/bin com.android.commands.settings.SettingsCmd "$@"
 }
 
 powerkey() {
-    CLASSPATH=/system/framework/input.jar /system/bin/app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
+    CLASSPATH=/system/framework/input.jar app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
 }
 
 get_uptime() {
@@ -357,7 +357,7 @@ log "System's screen off timeout is set to $(($(settings get system screen_off_t
 log "Making sure discard is enabled for data partitions ..."
 check_discard
 
-/system/bin/logcat -b system -b main -b events | sleepd
+logcat -b system -b main -b events | sleepd
 
 # Todo: React to these by waking the device up?
 #10-03 20:06:01.070 D/InputManager-JNI( 2371): handleInterceptActions: Waking up.
