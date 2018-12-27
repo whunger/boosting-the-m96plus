@@ -268,10 +268,10 @@ sleepd() {
         then
             if [ "$trigger" = "restart_power_service" ]
             then
-                log "restarting power service"
+                log "$trigger: restarting power service"
                 stop power
                 start power
-                log "exiting to induce restart"
+                log "$trigger: exiting to induce restart"
                 exit 33
             #elif [ "$trigger" = "workaround_step_1" ]
             #then
