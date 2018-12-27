@@ -327,9 +327,6 @@ sleepd() {
             then
                 log "$trigger: ignored, delta suspend=$((suspend_time-time)), mode=$mode, delta seq start=$((time-sequence_start_time))"
             fi
-            # Still in sync
-            ping_time=$((time+60))
-            ping_count=3
         fi
         
         mode=$(change_mode "$mode" "$line")
