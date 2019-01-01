@@ -333,6 +333,10 @@ on boot
     write /proc/sys/vm/dirty_background_ratio 5
     write /proc/sys/vm/dirty_ratio 50
 
+    # Faster I/O? From https://sites.google.com/site/tweakradje/android/android-tweaking
+    # (might trigger OOM killer)
+    write /proc/sys/vm/highmem_is_dirtyable 1
+
     # Tweak the mmc device read ahead buffer size
     # https://forum.xda-developers.com/general/general/ref-to-date-guide-cpu-governors-o-t3048957
     write /sys/block/mmcblk0/queue/read_ahead_kb 1024
@@ -752,6 +756,11 @@ service sleepd /system/xbin/sleepd
     class late_start
     user root
     #ioprio rt 1
+
+#service enable_discard /system/bin/logwrapper /system/xbin/enable-discard
+#    class late_start
+#    user root
+#    oneshot
 
 # virtual sdcard daemon running as media_rw (1023)
 # default 4 threads have better performance to 2 threads.

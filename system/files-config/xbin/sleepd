@@ -1,0 +1,283 @@
+#!/system/bin/sh
+
+if [[ -z "$1" ]]
+then
+    while true
+    do
+        logwrapper "$0" wrapped
+        rc=$?
+        [[ $rc != 33 ]] && break
+    done
+    exit $rc
+fi
+
+log() {
+    echo >&2 "$1"
+    [[ -e "/mnt/sdcard/sleepd.log" ]] && echo "$(busybox date) $1" >> /mnt/sdcard/sleepd.log
+}
+
+am() {
+    CLASSPATH=/system/framework/am.jar app_process /system/bin com.android.commands.am.Am "$@"
+}
+
+settings() {
+    CLASSPATH=/system/framework/settings.jar app_process /system/bin com.android.commands.settings.SettingsCmd "$@"
+}
+
+powerkey() {
+    CLASSPATH=/system/framework/input.jar app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
+}
+
+get_n_blocked() {
+    local label
+    local v0
+    local rest
+    while read label v0 rest
+    do
+        if [[ "$label" == "procs_blocked" ]]
+        then
+            echo $v0
+            break
+        fi
+    done < /proc/stat
+}
+
+check_governor() {
+    local governor
+    local target
+    if [[ "$1" == "auto" ]]
+    then
+        if [[ "$(get_n_blocked)" == "0" ]]
+        then
+            target="ondemand"
+        else
+            target="performance"
+        fi
+    else
+        target="$1"
+    fi
+    read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+    if [[ "$governor" != "$target" ]]
+    then
+        echo "$target" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+        log "set governor to $target"
+        return 0
+    fi
+    return 1
+}
+
+check_discard() {
+    if [[ -d "$1" ]] && mount | grep -q "$1"
+    then
+        log "mount -o remount,discard,noatime,norelatime,nosuid,nodev,noexec $1"
+        mount -o remount,discard,noatime,norelatime,nosuid,nodev,noexec "$1"
+    fi
+}
+
+init_mixer() {
+    # Sensible defaults, but does not help against loudspeaker pops
+    tinymix "Capture Volume" 0
+    tinymix "Right Output Mixer Boost Bypass Switch" 1
+    tinymix "Left Output Mixer Boost Bypass Switch" 1
+    tinymix "Speaker Playback ZC Switch" 1 1
+}
+
+change_mode() {
+    local mode
+    mode=$1
+    case "$2" in
+    *SYSTEM\ POWER\ STATE:\ \[mem\]*)
+        mode="mem"
+        ;;
+    *SYSTEM\ POWER\ STATE:\ \[on\]*)
+        mode="on"
+        ;;
+    *SYSTEM\ POWER\ STATE:\ \[standby\]*)
+        mode="standby"
+        ;;
+    esac
+    echo $mode
+}
+
+is_blocked() {
+    if [[ $time -le $block_time ]]
+    then
+        log "$((block_time-time)) s of blocking interval left"
+        return 0
+    else
+        return 1
+    fi
+}
+
+do_restart_power_service() {
+    log "restart_power_service"
+    stop power
+    start power
+    log "restart_power_service: exiting to induce restart"
+    exit 33
+}
+
+do_enter_suspend() {
+    ( powerkey ; sleep 0.1 ; powerkey ) &
+    log "enter_suspend: powerkey-sleep-powerkey, blocking for 30 s"
+    block_time=$((time+30))
+}
+
+do_sleep() {
+    log "sleep: sleeping now ..."
+}
+
+do_wakeup() {
+    log "wakeup: governor=performance, refresh_screen, init_mixer, blocking for 15 s"
+    check_governor performance
+    am broadcast -a refresh_screen
+    init_mixer
+    check_discard /storage/sdcard
+    check_discard /mnt/extsd
+    block_time=$((time+15))
+}
+
+do_activity() {
+    log "activity: governor=performance"
+    check_governor performance
+}
+
+do_throttle() {
+    log "throttle: governor=auto"
+    check_governor auto
+}
+
+do_refresh_screen() {
+    am broadcast -a refresh_screen &
+    log "refresh_screen"
+}
+
+sleepd() {
+    # ignore log up to $marker
+    while read line
+    do
+        mode=$(change_mode "$mode" "$line")
+        [[ "$line" != "${line%$marker*}" ]] && break
+    done
+
+    # start reacting to messages
+    time=${EPOCHREALTIME%%.*}
+    ping_time=$((time+60))
+    ping_count=0
+    exit_time=$((time+3600*24))
+    block_time=$((time+1))
+    spkr_check_time=$((time-1))
+    while read line
+    do
+        time=${EPOCHREALTIME%%.*}
+
+        # check for speaker state, at most once per second
+        if [[ "$mode" = "mem" ]] && [[ $time -gt $spkr_check_time ]]
+        then
+            # Just turn it off, cheaper than checking first
+            tinymix "ClassD Speaker Control" Off
+            spkr_check_time=$time
+        fi
+
+        # check for messages to react to
+        case "$line" in
+        */sleepd*)
+            # Still in sync
+            ping_time=$((time+60))
+            ping_count=3
+            continue  # loop, do not interpret own log messages
+            ;;
+        *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
+            log "$line"
+            is_blocked || do_enter_suspend
+            ;;
+        *Going\ to\ sleep\ by\ user\ request...*)
+            # Real PWRBTN press by user? /!\
+            log "$line"
+            is_blocked || do_enter_suspend
+            ;;
+        *Go\ to\ Sleep\ as\ POWER\ key\ is\ pressed*)
+            log "$line"
+            is_blocked || do_enter_suspend
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[mem\]*)
+            log "$line"
+            do_sleep
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[on\]*)
+            log "$line"
+            if [[ "$mode" = "mem" ]]
+            then do_wakeup
+            elif [[ "$mode" = "standby" ]] && ! is_blocked
+            then do_activity
+            fi
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[standby\]*)
+            log "$line"
+            if [[ "$mode" = "mem" ]]
+            then do_wakeup
+            elif [[ "$mode" = "on" ]] && ! is_blocked
+            then do_throttle
+            fi
+            ;;
+        *SYSTEM\ POWER\ STATE:\ \[\]*)
+            log "$line"
+            do_restart_power_service
+            ;;
+        *SYSTEM\ POWER\ STATE:*)
+            log "$line"
+            log "Unknown power state!"
+            ;;
+        *update_to_display*)
+            check_governor performance && log "$line"
+            ;;
+        *volume\ state\ changed\ for\ /storage/sdcard*mounted*)
+            log "$line"
+            check_discard /storage/sdcard
+            ;;
+        *volume\ state\ changed\ for\ /storage/extsd*mounted*)
+            log "$line"
+            check_discard /mnt/extsd
+            ;;
+        esac
+
+        mode=$(change_mode "$mode" "$line")
+
+        # check if logcat - sleepd - logwrapper loop is still working
+        if [[ $time -ge $ping_time ]] && [[ $ping_count -gt 0 ]]
+        then
+            echo >&2 "ping"
+            ping_count=$((ping_count-1))
+            ping_time=$((time+5))
+            if [[ $ping_count = 0 ]]
+            then
+                exit_time=$((time+1))
+            fi
+        elif [[ $time -ge $exit_time ]]
+        then
+            log "unable to receive pings, exiting to induce restart"
+            exit 33
+        fi
+    done
+}
+
+
+marker="== started sleepd $$ at $(busybox date) =="
+log "$marker"
+
+#setprop sys.interactive active
+#log "setprop sys.interactive active"
+
+echo 1000000 > /sys/power/device_suspend_time_threshold
+log "Increased device_suspend_time_threshold=$(cat /sys/power/device_suspend_time_threshold)"
+
+init_mixer
+log "Set mixer defaults"
+
+#settings put system screen_off_timeout 30000
+log "System's screen off timeout is set to $((0$(settings get system screen_off_timeout)/1000)) s"
+
+check_discard /storage/sdcard
+check_discard /mnt/extsd
+
+logcat -b system -b main -b events | sleepd

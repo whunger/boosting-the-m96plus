@@ -1,7 +1,19 @@
 #!/system/bin/sh
 
-for mp in /data /storage/sdcard /mnt/extsd
+#echo >&2 "Making sure discard is enabled for data partitions ..."
+#mount -o remount,discard,noatime /data
+
+for mp in /storage/sdcard /mnt/extsd
 do
-    [ -d "$mp" ] && /system/xbin/mount.static -o remount,discard "$mp"
+    echo >&2 "mount -o remount,discard,noatime,norelatime,nosuid,nodev,noexec $mp"
+    [[ -d "$mp" ]] && mount -o remount,discard,noatime,norelatime,nosuid,nodev,noexec "$mp"
 done
 
+# Before:
+#root@M96Plus:/ # /system/xbin/mount.static                                     
+#/dev/block/vold/179:4 on /storage/sdcard type vfat (rw,nosuid,nodev,noexec,relatime,dirsync,uid=1023,gid=1023,fmask=0000,dmask=0000,allow_utime=0022,codepage=cp437,iocharset=iso8859-1,shortname=mixed,utf8,errors=remount-ro)
+#/dev/block/vold/179:49 on /mnt/extsd type vfat (rw,nosuid,nodev,noexec,relatime,dirsync,uid=1023,gid=1023,fmask=0000,dmask=0000,allow_utime=0022,codepage=cp437,iocharset=iso8859-1,shortname=mixed,utf8,errors=remount-ro)
+# After:
+#root@M96Plus:/ # /system/xbin/mount.static                                     
+#/dev/block/vold/179:4 on /storage/sdcard type vfat (rw,nosuid,nodev,noexec,noatime,dirsync,uid=1023,gid=1023,fmask=0000,dmask=0000,allow_utime=0022,codepage=cp437,iocharset=iso8859-1,shortname=mixed,utf8,errors=remount-ro)
+#/dev/block/vold/179:49 on /mnt/extsd type vfat (rw,nosuid,nodev,noexec,noatime,dirsync,uid=1023,gid=1023,fmask=0000,dmask=0000,allow_utime=0022,codepage=cp437,iocharset=iso8859-1,shortname=mixed,utf8,errors=remount-ro)
