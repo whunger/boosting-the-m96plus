@@ -11,7 +11,7 @@ import /init.trace.rc
 
 on early-init
     # Set init and its forked children's oom_adj.
-    write /proc/1/oom_adj -17
+    write /proc/1/oom_adj -16
 
     # Set the security context for the init process.
     # This should occur before anything else (e.g. ueventd) is started.
@@ -343,9 +343,9 @@ on boot
     write /sys/block/mmcblk1/queue/scheduler "deadline"
 
     # Memory or CPU?
-    #write /sys/kernel/mm/ksm/run 1
-    #write /sys/kernel/mm/ksm/sleep_millisecs 1500
-    #write /sys/kernel/mm/ksm/pages_to_scan 20
+    write /sys/kernel/mm/ksm/run 1
+    write /sys/kernel/mm/ksm/sleep_millisecs 1500
+    write /sys/kernel/mm/ksm/pages_to_scan 20
 
     # Permissions for System Server and daemons.
     chown radio system /sys/android_power/state
