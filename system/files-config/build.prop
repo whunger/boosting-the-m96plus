@@ -48,4 +48,5 @@ persist.sys.dalvik.vm.lib=libdvm.so
 dalvik.vm.dexopt-flags=m=y
 net.bt.name=Android
 dalvik.vm.stack-trace-file=/data/anr/traces.txt
-
+sys.keep_app_1=net.pierrox.lightning_launcher_extreme
+sys.keep_app_2=com.fiistudio.fiinote
