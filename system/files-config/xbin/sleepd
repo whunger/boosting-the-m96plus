@@ -172,7 +172,7 @@ sleepd() {
         time=${EPOCHREALTIME%%.*}
 
         # check for speaker state, at most once per second
-        if [[ "$mode" = "mem" ]] && [[ $time -gt $spkr_check_time ]]
+        if [[ "$mode" != "on" ]] && [[ $time -gt $spkr_check_time ]]
         then
             # Just turn it off, cheaper than checking first
             tinymix "ClassD Speaker Control" Off
