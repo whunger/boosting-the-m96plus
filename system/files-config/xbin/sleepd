@@ -118,7 +118,7 @@ do_restart_power_service() {
 }
 
 do_enter_suspend() {
-    ( powerkey ; sleep 0.1 ; powerkey ) &
+    ( sleep 0.1 ; powerkey ; sleep 0.5 ; powerkey ) &
     log "enter_suspend: powerkey-sleep-powerkey, blocking for 30 s"
     block_time=$((time+30))
 }
@@ -166,17 +166,19 @@ sleepd() {
     ping_count=0
     exit_time=$((time+3600*24))
     block_time=$((time+1))
-    spkr_check_time=$((time-1))
+    spkr_check_budget=8
     while read line
     do
+        last_time=$time
         time=${EPOCHREALTIME%%.*}
+        spkr_check_budget=$((spkr_check_budget+time-last_time))
 
         # check for speaker state, at most once per second
-        if [[ "$mode" != "on" ]] && [[ $time -gt $spkr_check_time ]]
+        if [[ "$mode" != "on" ]] && [[ $spkr_check_budget -gt 0 ]]
         then
             # Just turn it off, cheaper than checking first
             tinymix "ClassD Speaker Control" Off
-            spkr_check_time=$time
+            spkr_check_budget=$((spkr_check_budget/2))
         fi
 
         # check for messages to react to
