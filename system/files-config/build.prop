@@ -46,7 +46,8 @@ dalvik.vm.heapminfree=512k
 dalvik.vm.heapmaxfree=2m
 persist.sys.dalvik.vm.lib=libdvm.so
 dalvik.vm.dexopt-flags=m=y
-net.bt.name=Android
+net.bt.name=M96Plus
 dalvik.vm.stack-trace-file=/data/anr/traces.txt
+persist.sys.ui.hw=true
 sys.keep_app_1=net.pierrox.lightning_launcher_extreme
 sys.keep_app_2=com.fiistudio.fiinote

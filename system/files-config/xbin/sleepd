@@ -82,6 +82,13 @@ init_mixer() {
     tinymix "Speaker Playback ZC Switch" 1 1
 }
 
+init_screen() {
+    settings put global window_animation_scale 0.0
+    settings put global animator_duration_scale 0.0
+    settings put global transition_animation_scale 0.0
+    setprop persist.sys.ui.hw true
+}
+
 change_mode() {
     local mode
     mode=$1
@@ -267,14 +274,14 @@ sleepd() {
 marker="== started sleepd $$ at $(busybox date) =="
 log "$marker"
 
-#setprop sys.interactive active
-#log "setprop sys.interactive active"
-
 echo 1000000 > /sys/power/device_suspend_time_threshold
 log "Increased device_suspend_time_threshold=$(cat /sys/power/device_suspend_time_threshold)"
 
 init_mixer
 log "Set mixer defaults"
+
+init_screen
+log "Set defaults for screen performance"
 
 #settings put system screen_off_timeout 30000
 log "System's screen off timeout is set to $((0$(settings get system screen_off_timeout)/1000)) s"
