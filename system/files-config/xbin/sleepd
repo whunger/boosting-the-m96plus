@@ -59,8 +59,8 @@ check_governor() {
     read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
     if [[ "$governor" != "$target" ]]
     then
-        echo "$target" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-        log "set governor to $target"
+        #echo "$target" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+        log "would set governor from $governor to $target"
         return 0
     fi
     return 1
@@ -288,5 +288,8 @@ log "System's screen off timeout is set to $((0$(settings get system screen_off_
 
 check_discard /storage/sdcard
 check_discard /mnt/extsd
+
+do_refresh_screen
+log "Refresh screen to indicate sleepd start"
 
 logcat -b system -b main -b events | sleepd
