@@ -59,8 +59,8 @@ check_governor() {
     read governor < /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
     if [[ "$governor" != "$target" ]]
     then
-        #echo "$target" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-        log "would set governor from $governor to $target"
+        echo "$target" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+        log "set governor from $governor to $target"
         return 0
     fi
     return 1
@@ -173,12 +173,12 @@ sleepd() {
     ping_count=0
     exit_time=$((time+3600*24))
     block_time=$((time+1))
-    spkr_check_budget=8
+    spkr_check_budget=128
     while read line
     do
         last_time=$time
         time=${EPOCHREALTIME%%.*}
-        spkr_check_budget=$((spkr_check_budget+time-last_time))
+        spkr_check_budget=$((16*(spkr_check_budget+time-last_time)))  # + 4/s
 
         # check for speaker state, at most once per second
         if [[ "$mode" != "on" ]] && [[ $spkr_check_budget -gt 0 ]]
@@ -274,8 +274,8 @@ sleepd() {
 marker="== started sleepd $$ at $(busybox date) =="
 log "$marker"
 
-echo 1000000 > /sys/power/device_suspend_time_threshold
-log "Increased device_suspend_time_threshold=$(cat /sys/power/device_suspend_time_threshold)"
+#echo 1000000 > /sys/power/device_suspend_time_threshold
+#log "Increased device_suspend_time_threshold=$(cat /sys/power/device_suspend_time_threshold)"
 
 init_mixer
 log "Set mixer defaults"
