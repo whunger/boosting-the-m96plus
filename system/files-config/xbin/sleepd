@@ -150,8 +150,10 @@ do_activity() {
 }
 
 do_throttle() {
-    log "throttle: governor=auto"
-    check_governor auto
+    #log "throttle: governor=auto"
+    #check_governor auto
+    log "throttle: governor=performance regardless"
+    check_governor performance
 }
 
 do_refresh_screen() {
