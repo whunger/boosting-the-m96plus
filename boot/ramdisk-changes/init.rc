@@ -461,13 +461,14 @@ on boot
 
 on property:sys.boot_completed=1
 # Set default CPU frequency governor
-# Set timer 20ms, min sample 10s, hispeed at cpufreq MAX freq in freq_table at load 25%
-    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor performance
-    # Alternatives: interactive, ondemand
-    write /sys/devices/system/cpu/cpufreq/interactive/timer_rate 5000
-    write /sys/devices/system/cpu/cpufreq/interactive/input_boost 1
-    write /sys/devices/system/cpu/cpufreq/interactive/min_sample_time 10000000
-    write /sys/devices/system/cpu/cpufreq/interactive/go_hispeed_load 10
+    #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor performance
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 996000
+    #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
+    # Set timer 20ms, min sample 10s, hispeed at cpufreq MAX freq in freq_table at load 25%
+    #write /sys/devices/system/cpu/cpufreq/interactive/timer_rate 5000
+    #write /sys/devices/system/cpu/cpufreq/interactive/input_boost 1
+    #write /sys/devices/system/cpu/cpufreq/interactive/min_sample_time 10000000
+    #write /sys/devices/system/cpu/cpufreq/interactive/go_hispeed_load 10
     #write /sys/devices/system/cpu/cpufreq/interactive/io_is_busy 1
     #write /sys/devices/system/cpu/cpufreq/interactive/hispeed_freq 792000
 
@@ -523,12 +524,14 @@ on property:vold.decrypt=trigger_shutdown_framework
 
 on property:sys.powerctl=*
     powerctl ${sys.powerctl}
-    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor performance
+    #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor performance
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 996000
     # Alternatives: interactive, ondemand
 
 # sys.onyx.pwrmode=on/mem/standby
 on property:sys.onyx.pwrmode=*
-    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor performance
+    #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor performance
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 996000
     # Alternatives: interactive, ondemand
 
 # system server cannot write to /proc/sys files, so proxy it through init

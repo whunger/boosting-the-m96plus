@@ -135,8 +135,9 @@ do_sleep() {
 }
 
 do_wakeup() {
-    log "wakeup: governor=performance, refresh_screen, init_mixer, blocking for 15 s"
-    check_governor performance
+    log "wakeup: refresh_screen, init_mixer, blocking for 15 s"
+    #log "wakeup: governor=performance, refresh_screen, init_mixer, blocking for 15 s"
+    #check_governor performance
     am broadcast -a refresh_screen
     init_mixer
     check_discard /storage/sdcard
@@ -145,15 +146,17 @@ do_wakeup() {
 }
 
 do_activity() {
-    log "activity: governor=performance"
-    check_governor performance
+    log "activity: nop"
+    #log "activity: governor=performance"
+    #check_governor performance
 }
 
 do_throttle() {
+    log "throttle: nop"
     #log "throttle: governor=auto"
     #check_governor auto
-    log "throttle: governor=performance regardless"
-    check_governor performance
+    #log "throttle: governor=performance regardless"
+    #check_governor performance
 }
 
 do_refresh_screen() {
@@ -239,9 +242,9 @@ sleepd() {
             log "$line"
             log "Unknown power state!"
             ;;
-        *update_to_display*)
-            check_governor performance && log "$line"
-            ;;
+        #*update_to_display*)
+        #    check_governor performance && log "$line"
+        #    ;;
         *volume\ state\ changed\ for\ /storage/sdcard*mounted*)
             log "$line"
             check_discard /storage/sdcard
