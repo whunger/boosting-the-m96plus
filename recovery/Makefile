@@ -35,7 +35,7 @@ recovery-twrp.img: recovery-orig ramdisk-patched.gz Makefile
 	../tools/mkbootimg/mkbootimg \
 	  --kernel recovery-orig/recovery.img-zImage \
 	  --ramdisk ramdisk-patched.gz \
-	  --cmdline "console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_V110,bpp=16 epdc androidboot.hardware=freescale" \
+	  --cmdline "console=ttymxc0,115200 init=/init androidboot.console=ttymxc0 video=mxcepdcfb:E97_OD2,bpp=16 epdc androidboot.hardware=freescale" \
 	  --base 80800000 \
 	  -o recovery-twrp.img
 

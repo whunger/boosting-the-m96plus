@@ -20,7 +20,7 @@ all: install-wf
 # V220_C228_97_WN3B42_ED097OD2_CTC.fw: almost no ghosting, not as sharp as WN6441? Full screen redraw on transition standby -> on?
 # V220_C243_97_WN6441_ED097OD2_CTC.fw: ghosting, good contrast, fast
 
-EPDC := V220_C228_97_WN3B41_ED097TC1_CTC
+EPDC := V220_C228_97_WN3B41_ED097OD2_CTC
 
 install-wf: wf.zip
 	adb shell "cat /dev/null > /vendor/firmware/imx/epdc.fw"
