@@ -2,3 +2,10 @@ M96Plus_2017-05-03_03-33_1.8.2_e54efe5_user.zip
 M96_KK_2015-11-29_19-41_dev_6b96172_eng.zip
 M96_KK_2017-05-02_19-37_dev_fbc2cc2_user.zip
 logs/*
+recovery/recovery-orig/*
+recovery/recovery-twrp/*
+recovery/ramdisk-orig/*
+recovery/ramdisk-twrp/*
+recovery/ramdisk-patched/*
+system/bootanimation-elephants/*
+system/bootanimation-swirl/*

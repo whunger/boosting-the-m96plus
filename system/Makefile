@@ -38,10 +38,10 @@ bootanimation-825: bootanimation-1080
 	sed -e "s/1080 1440/825 1200/" < bootanimation-1080/desc.txt > bootanimation-825/desc.txt
 	(cd bootanimation-1080; for f in part0/*.png; do pngtopnm "$$f" | pnmscale -xsize=825 -ysize=1200 | pnmdepth 15 | pnmtopng > "../bootanimation-825/$$f"; done)
 
-files-config/media/bootanimation.zip: bootanimation-825
+files-config/media/bootanimation.zip: bootanimation-screens
 	mkdir -p files-config/media
 	rm -f files-config/media/bootanimation.zip
-	(cd bootanimation-825; zip -r --compression-method store ../files-config/media/bootanimation.zip desc.txt part0)
+	(cd bootanimation-screens; zip -r --compression-method store ../files-config/media/bootanimation.zip desc.txt part0)
 
 system-orig: system.img
 	mkdir system-orig
