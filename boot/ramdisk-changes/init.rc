@@ -326,13 +326,20 @@ on boot
     chmod 0664 /sys/module/lowmemorykiller/parameters/adj
     chown root system /sys/module/lowmemorykiller/parameters/minfree
     chmod 0664 /sys/module/lowmemorykiller/parameters/minfree
+    # defaults: 12288,15360,18432,21504,24576,30720
+    # ",".join(str(i+96*1024) for i in [int(s) for s in "12288,15360,18432,21504,24576,30720".split(",")])
+    write /sys/module/lowmemorykiller/parameters/minfree 110592,113664,116736,119808,122880,129024
 
     # Tweak background writeout
     #write /proc/sys/vm/dirty_expire_centisecs 150  # default 3000
     #write /proc/sys/vm/dirty_writeback_centisecs 3000  # default 500
     # Start writing at 50 MB, don't buffer more than 200 MB:
-    write /proc/sys/vm/dirty_background_ratio 5
-    write /proc/sys/vm/dirty_ratio 20
+    #write /proc/sys/vm/dirty_background_ratio 5
+    #write /proc/sys/vm/dirty_ratio 20
+    # Start writing at 20 MB, don't buffer more than 50 MB:
+    write /proc/sys/vm/dirty_background_ratio 2
+    write /proc/sys/vm/dirty_ratio 5
+    write /proc/sys/vm/vfs_cache_pressure 50
 
     # Faster I/O? From https://sites.google.com/site/tweakradje/android/android-tweaking
     # (might trigger OOM killer)
@@ -345,12 +352,12 @@ on boot
 
     # Define I/O schedulers to use for mmc
     write /sys/block/mmcblk0/queue/scheduler "cfq"
-    write /sys/block/mmcblk1/queue/scheduler "deadline"
+    write /sys/block/mmcblk1/queue/scheduler "cfq"
 
     # Memory or CPU?
     write /sys/kernel/mm/ksm/run 1
-    write /sys/kernel/mm/ksm/sleep_millisecs 500
-    write /sys/kernel/mm/ksm/pages_to_scan 20
+    write /sys/kernel/mm/ksm/sleep_millisecs 1000
+    write /sys/kernel/mm/ksm/pages_to_scan 128
 
     # Permissions for System Server and daemons.
     chown radio system /sys/android_power/state
@@ -463,7 +470,9 @@ on boot
 on property:sys.boot_completed=1
 # Set default CPU frequency governor
     #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor performance
+    #chmod 0444 /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
     write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 996000
+    #chmod 0444 /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
     #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
     # Set timer 20ms, min sample 10s, hispeed at cpufreq MAX freq in freq_table at load 25%
     #write /sys/devices/system/cpu/cpufreq/interactive/timer_rate 5000
@@ -527,9 +536,10 @@ on property:sys.powerctl=*
     powerctl ${sys.powerctl}
 
 # sys.onyx.pwrmode=on/mem/standby
-on property:sys.onyx.pwrmode=*
+#on property:sys.onyx.pwrmode=*
     #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor performance
-    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 996000
+    #chmod 0444 /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+    #write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 996000
     # Alternatives: interactive, ondemand
 
 # system server cannot write to /proc/sys files, so proxy it through init
