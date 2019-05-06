@@ -13,7 +13,7 @@ fi
 
 log() {
     echo >&2 "$1"
-    [[ -e "/mnt/sdcard/sleepd.log" ]] && echo "$(busybox date) $1" >> /mnt/sdcard/sleepd.log
+    [[ -e /mnt/sdcard/sleepd.log ]] && echo "$(date) $1" >> /mnt/sdcard/sleepd.log
 }
 
 am() {
@@ -28,7 +28,12 @@ powerkey() {
     CLASSPATH=/system/framework/input.jar app_process /system/bin com.android.commands.input.Input keyevent KEYCODE_POWER
 }
 
+refresh_screen() {
+    am broadcast -a refresh_screen
+}
+
 get_n_blocked() {
+    # get number of blocked processes
     local label
     local v0
     local rest
@@ -42,16 +47,134 @@ get_n_blocked() {
     done < /proc/stat
 }
 
+get_cs_time() {
+    # get time in centiseconds
+    local up
+    local idle
+    read up idle < /proc/uptime
+    echo ${up/./}
+}
+
+# * detect user inactivity from /proc/interrupts
+# * detect power button presses from /proc/interrupts
+# * the Hanvon pen is connected to the 2nd uart (IRQ 59)
+# * buttons are connected to GPIO pins
+#
+#  59:     115712       GIC  IMX-uart
+#  87:      63859       GIC  i.MX Timer Tick
+# 338:          0      GPIO  btn power
+# 344:         10      GPIO  btn 4K_pgdn
+# 345:         14      GPIO  btn 5K_left
+# 346:          8      GPIO  btn 4K_pgup
+# 347:         26      GPIO  btn 5K_right
+# 348:          6      GPIO  btn 4K_menu
+# 349:          4      GPIO  btn 5K_ok
+# 350:         10      GPIO  btn 4K_back
+# 351:         36      GPIO  btn 5K_up
+# 352:          2      GPIO  btn VOL_UP
+# 353:         80      GPIO  btn 5K_down
+# 354:          4      GPIO  btn VOL_DOWN
+
+get_pen_irq_count() {
+    local irq
+    local n
+    local type
+    local name
+    while read irq n type name
+    do
+        if [[ "$irq" = "59:" ]]
+        then
+            echo $n
+            break
+        fi
+    done < /proc/interrupts
+}
+
+is_on_ac() {
+    if dumpsys battery | grep "AC powered: true"
+    then return 1
+    else return 0
+    fi
+}
+
+set_screenlock() {
+    if [[ "$1" == "locked" ]] && [[ "$(getprop sys.onyx.pwrmode)" != "mem" ]]
+    then
+        dumpsys battery set ac 1
+        dumpsys battery set status 0
+        log "locked screen to on state by simulating ac power"
+    elif [[ "$1" == "unlocked" ]]
+    then
+        rm -f /mnt/shm/sleepd_screenlock
+        dumpsys battery reset
+        log "released screenlock"
+    fi
+}
+
+keep_screen_responsive() {
+    local pen_irq_count
+    local last_pen_irq_count
+    local screenlock
+    local screen_on_time
+    local time
+    # make sure screen stays on while user interacts
+    log "Started child process for screen wakelock"
+    screenlock=0
+    last_pen_irq_count="0$(get_pen_irq_count)"
+    while true
+    do
+        if [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
+        then sleep 60
+        else sleep 0.1
+        fi
+        time=${EPOCHREALTIME%%.*}
+        pen_irq_count="0$(get_pen_irq_count)"
+        if [[ $pen_irq_count -gt $last_pen_irq_count ]]
+        then
+            last_pen_irq_count=$pen_irq_count
+            touch /mnt/shm/sleepd_screenlock
+            screen_on_time=$time
+        elif [[ -e /mnt/shm/sleepd_screenlock ]]
+        then
+            screen_on_time=$(busybox date +%s -r /mnt/shm/sleepd_screenlock)
+        else
+            screen_on_time=0
+        fi
+        if [[ $((screen_on_time+60)) -gt $time ]]
+        then
+            if [[ $screenlock -eq 0 ]]
+            then
+                screenlock=1
+                sleep 0.5
+                set_screenlock locked
+            fi
+            sleep 10
+        else
+            if [[ $screenlock -eq 1 ]]
+            then
+                screenlock=0
+                set_screenlock unlocked
+            fi
+        fi
+    done
+}
+
+set_wakelock() {
+    # make sure device stays awake while processes wait for i/o
+    if [[ "$1" == "locked" ]]
+    then echo sleepd_io > /sys/power/wake_lock
+    else echo sleepd_io > /sys/power/wake_unlock
+    fi
+}
+
 check_governor() {
     local governor
     local target
     if [[ "$1" == "auto" ]]
     then
-        if [[ "$(get_n_blocked)" == "0" ]]
-        then
-            target="ondemand"
-        else
-            target="performance"
+        if [[ "0$(get_n_blocked)" -gt 0 ]]
+        then target="performance"
+        else target="ondemand"
         fi
     else
         target="$1"
@@ -66,6 +189,17 @@ check_governor() {
     return 1
 }
 
+check_io() {
+    # make sure device stays awake while processes wait for i/o
+    if [[ "0$(get_n_blocked)" -gt 0 ]]
+    then
+        set_wakelock locked
+        check_governor performance
+    else
+        set_wakelock unlocked
+    fi
+}
+
 check_discard() {
     if [[ -d "$1" ]] && mount | grep -q "$1"
     then
@@ -75,7 +209,7 @@ check_discard() {
 }
 
 init_mixer() {
-    # Sensible defaults, but does not help against loudspeaker pops
+    # sensible defaults, but does not help against loudspeaker pops
     tinymix "Capture Volume" 0
     tinymix "Right Output Mixer Boost Bypass Switch" 1
     tinymix "Left Output Mixer Boost Bypass Switch" 1
@@ -87,6 +221,25 @@ init_screen() {
     settings put global animator_duration_scale 0.0
     settings put global transition_animation_scale 0.0
     setprop persist.sys.ui.hw true
+    busybox renice -10 $(busybox pgrep /system/bin/surfaceflinger)
+}
+
+init_vm() {
+    # start writing at 20 MB, don't buffer more than 50 MB:
+    echo 2 > /proc/sys/vm/dirty_background_ratio
+    echo 5 > /proc/sys/vm/dirty_ratio
+    # Use fs cache!
+    echo 50 > /proc/sys/vm/vfs_cache_pressure
+    # Default is 60:
+    echo 10 > /proc/sys/vm/swappiness
+    # Limit number of background processes
+    #service call activity 51 i32 3
+    # Limit this process and its children
+    #ulimit -Sv 16384
+}
+
+init_swap() {
+    [ -e /cache/swap ] && grep -q /cache/swap /proc/swaps || swapon /cache/swap
 }
 
 change_mode() {
@@ -121,13 +274,21 @@ do_restart_power_service() {
     stop power
     start power
     log "restart_power_service: exiting to induce restart"
+    kill $keep_screen_responsive_pid
     exit 33
 }
 
 do_enter_suspend() {
-    ( sleep 0.1 ; powerkey ; sleep 0.5 ; powerkey ) &
-    log "enter_suspend: powerkey-sleep-powerkey, blocking for 30 s"
-    block_time=$((time+30))
+    set_screenlock unlocked
+    set_wakelock unlocked
+    if [[ "$mode" == "standby" ]]
+    then
+        ( powerkey ; sleep 1 ; powerkey ) &
+        block_time=$((time+60))
+        log "enter_suspend ($mode): keep_screen_on-powerkey-sleep-powerkey, releasing wakelock, blocking for 60 s"
+    else
+        log "enter suspend ($mode): releasing wakelock"
+    fi
 }
 
 do_sleep() {
@@ -135,24 +296,20 @@ do_sleep() {
 }
 
 do_wakeup() {
-    log "wakeup: refresh_screen, init_mixer, blocking for 15 s"
-    #log "wakeup: governor=performance, refresh_screen, init_mixer, blocking for 15 s"
-    #check_governor performance
-    am broadcast -a refresh_screen
+    log "wakeup: init_mixer, blocking for 15 s"
     init_mixer
-    check_discard /storage/sdcard
-    check_discard /mnt/extsd
+    #check_governor performance
+    refresh_screen
     block_time=$((time+15))
 }
 
 do_activity() {
-    log "activity: nop"
+    #touch /mnt/shm/sleepd_screenlock
+    #check_governor auto
     #log "activity: governor=performance"
-    #check_governor performance
 }
 
 do_throttle() {
-    log "throttle: nop"
     #log "throttle: governor=auto"
     #check_governor auto
     #log "throttle: governor=performance regardless"
@@ -160,37 +317,48 @@ do_throttle() {
 }
 
 do_refresh_screen() {
-    am broadcast -a refresh_screen &
-    log "refresh_screen"
+    refresh_screen
+    log "refresh_screen, blocking for 2 s"
+    block_time=$((time+2))
+}
+
+do_screenshot() {
+    screencap -p /mnt/sdcard/Pictures/Screenshots/"$(date +"%Y-%m-%d_%H_%M_%S").png"
 }
 
 sleepd() {
     # ignore log up to $marker
+    mode="on"
     while read line
     do
         mode=$(change_mode "$mode" "$line")
         [[ "$line" != "${line%$marker*}" ]] && break
     done
 
+    refresh_screen
+    log "Refresh screen to indicate sleepd start"
+
     # start reacting to messages
     time=${EPOCHREALTIME%%.*}
+    cs_time=$(get_cs_time)
     ping_time=$((time+60))
     ping_count=0
     exit_time=$((time+3600*24))
     block_time=$((time+1))
-    spkr_check_budget=128
+    budget=128
     while read line
     do
-        last_time=$time
         time=${EPOCHREALTIME%%.*}
-        spkr_check_budget=$((16*(spkr_check_budget+time-last_time)))  # + 4/s
+        last_cs_time=$cs_time
+        cs_time=$(get_cs_time)
+        budget=$((budget+cs_time-last_cs_time))  # + 7/s
 
-        # check for speaker state, at most once per second
-        if [[ "$mode" != "on" ]] && [[ $spkr_check_budget -gt 0 ]]
+        if [[ $budget -gt 20 ]]
         then
-            # Just turn it off, cheaper than checking first
-            tinymix "ClassD Speaker Control" Off
-            spkr_check_budget=$((spkr_check_budget/2))
+            [[ "$mode" != "on" ]] && tinymix "ClassD Speaker Control" Off
+            [[ "$mode" != "mem" ]] && check_io
+            budget=$((budget/2))
+            #log "$budget"
         fi
 
         # check for messages to react to
@@ -206,7 +374,7 @@ sleepd() {
             is_blocked || do_enter_suspend
             ;;
         *Going\ to\ sleep\ by\ user\ request...*)
-            # Real PWRBTN press by user? /!\
+            # First indicator of Onyx software starting to suspend the device
             log "$line"
             is_blocked || do_enter_suspend
             ;;
@@ -219,16 +387,16 @@ sleepd() {
             do_sleep
             ;;
         *SYSTEM\ POWER\ STATE:\ \[on\]*)
-            log "$line"
-            if [[ "$mode" = "mem" ]]
+            #log "$line"
+            if [[ "$mode" = "mem" ]] && ! is_blocked
             then do_wakeup
             elif [[ "$mode" = "standby" ]] && ! is_blocked
             then do_activity
             fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
-            log "$line"
-            if [[ "$mode" = "mem" ]]
+            #log "$line"
+            if [[ "$mode" = "mem" ]] && ! is_blocked
             then do_wakeup
             elif [[ "$mode" = "on" ]] && ! is_blocked
             then do_throttle
@@ -236,15 +404,12 @@ sleepd() {
             ;;
         *SYSTEM\ POWER\ STATE:\ \[\]*)
             log "$line"
-            do_restart_power_service
+            #do_restart_power_service
             ;;
         *SYSTEM\ POWER\ STATE:*)
             log "$line"
             log "Unknown power state!"
             ;;
-        #*update_to_display*)
-        #    check_governor performance && log "$line"
-        #    ;;
         *volume\ state\ changed\ for\ /storage/sdcard*mounted*)
             log "$line"
             check_discard /storage/sdcard
@@ -253,6 +418,12 @@ sleepd() {
             log "$line"
             check_discard /mnt/extsd
             ;;
+        #*android.util.PhoneWindowHelper.onLongPress*)
+        *android.hardware.DeviceController.sendOpenAndCloseFrontLightBroadcast*)
+            do_screenshot
+            ;;
+        #*update_to_display*)
+        #*handleInterceptActions:\ Waking\ up.*)
         esac
 
         mode=$(change_mode "$mode" "$line")
@@ -262,7 +433,7 @@ sleepd() {
         then
             echo >&2 "ping"
             ping_count=$((ping_count-1))
-            ping_time=$((time+5))
+            ping_time=$((time+15))
             if [[ $ping_count = 0 ]]
             then
                 exit_time=$((time+1))
@@ -270,13 +441,14 @@ sleepd() {
         elif [[ $time -ge $exit_time ]]
         then
             log "unable to receive pings, exiting to induce restart"
+            kill $keep_screen_responsive_pid
             exit 33
         fi
     done
 }
 
 
-marker="== started sleepd $$ at $(busybox date) =="
+marker="== started sleepd $$ at $(date) =="
 log "$marker"
 
 #echo 1000000 > /sys/power/device_suspend_time_threshold
@@ -285,16 +457,74 @@ log "$marker"
 init_mixer
 log "Set mixer defaults"
 
+init_vm
+log "Set defaults for vm management"
+
+#settings put system screen_off_timeout 30000
+#settings put system screen_off_timeout 300000
+log "System's screen off timeout is set to $((0$(settings get system screen_off_timeout)/1000)) s"
+
+# settings/system/screen_off_timeout: pid=2731 uid=1000 user=-1 target=4175ab68
+# settings/system/screen_brightness: pid=2731 uid=1000 user=-1 target=417a71c8
+# settings/system/screen_brightness_mode: pid=2731 uid=1000 user=-1 target=417a71c8
+# mPendingRequestLocked=screenState=0, useProximitySensor=false, screenBrightness=48, screenAutoBrightnessAdjustment=0.0, useAutoBrightness=false, blockScreenOn=false
+# mPowerRequest=screenState=0, useProximitySensor=false, screenBrightness=48, screenAutoBrightnessAdjustment=0.0, useAutoBrightness=false, blockScreenOn=false
+# mScreenOn=false
+
+# Screen off timeout: 1800000 ms
+# Screen dim duration: 7000 ms
+# 
+# Wake Locks: size=0
+# 
+# Suspend Blockers: size=4
+#   PowerManagerService.WakeLocks: ref count=0
+#   PowerManagerService.Display: ref count=0
+#   PowerManagerService.Broadcasts: ref count=0
+#   PowerManagerService.WirelessChargerDetector: ref count=0
+# 
+# Screen On Blocker: held=false, mNestCount=0
+# 
+# Display Blanker: blanked=true
+
+#check_discard /storage/sdcard
+#check_discard /mnt/extsd
+
+#init_swap
+
+# Testing:
+#stop power
+#busybox chrt -p -f 90 $(busybox pgrep "EPDC AA")
+#busybox chrt -p -f 91 $(busybox pgrep "EPDC Submit")
+#busybox chrt -p -f 92 $(busybox pgrep "EPDC Interrupt")
+#busybox chrt -p -f 95 $(busybox pgrep /system/bin/surfaceflinger)
+#busybox chrt -p -f 90 $(busybox pgrep /system/bin/onyx_tpd)
+
+# From Kernel 3.4 on ... setprop sys.sysctl.extra_free_kbytes 16384
+
+#am broadcast -a android.intent.action.BOOT_COMPLETED -c android.intent.category.HOME -n ui.robot.rotatedonate/.MyEventReceiver
+#am broadcast -a android.intent.action.BOOT_COMPLETED -n ui.robot.rotatedonate/.MyEventReceiver
+#am broadcast -a android.intent.action.BOOT_COMPLETED
+#am broadcast -a android.intent.action.BOOT_COMPLETED -n org.crape.rotationcontrol/org.crape.rotationcontrol.BroadcastBootCompletedReceiver
+#am start org.crape.rotationcontrol/.RotationControlActivity
+#am broadcast -a android.intent.action.CONFIGURATION_CHANGED -n org.crape.rotationcontrol/org.crape.rotationcontrol.RotationControlService
+
 init_screen
 log "Set defaults for screen performance"
 
-#settings put system screen_off_timeout 30000
-log "System's screen off timeout is set to $((0$(settings get system screen_off_timeout)/1000)) s"
+log "Waiting for system to settle ..."
+while [[ "0$(get_n_blocked)" -gt 0 ]]
+do
+    sleep 5
+done
 
-check_discard /storage/sdcard
-check_discard /mnt/extsd
-
-do_refresh_screen
-log "Refresh screen to indicate sleepd start"
+keep_screen_responsive &
+keep_screen_responsive_pid=$!
 
 logcat -b system -b main -b events | sleepd
+
+# * sys.onyx.pwrmode can be one of on/standby/mem
+# * to test with adb running use "dumpsys battery set ac 0"
+#
+# [hw.backlight.dev]: [pwm-backlight.0]
+# [sys.onyx.pwrmode]: [standby]
+# android.intent.action.USER_PRESENT
