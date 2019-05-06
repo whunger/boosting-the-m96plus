@@ -98,65 +98,59 @@ is_on_ac() {
 }
 
 set_screenlock() {
-    if [[ "$1" == "locked" ]] && [[ "$(getprop sys.onyx.pwrmode)" != "mem" ]]
+    if [[ "$1" == "locked" ]]
     then
+        touch /mnt/shm/sleepd_screenlock
         dumpsys battery set ac 1
         dumpsys battery set status 0
         log "locked screen to on state by simulating ac power"
     elif [[ "$1" == "unlocked" ]]
     then
-        rm -f /mnt/shm/sleepd_screenlock
         dumpsys battery reset
+        rm -f /mnt/shm/sleepd_screenlock
         log "released screenlock"
     fi
 }
 
-keep_screen_responsive() {
-    local pen_irq_count
-    local last_pen_irq_count
-    local screenlock
+screenlock_timeout() {
     local screen_on_time
     local time
-    # make sure screen stays on while user interacts
-    log "Started child process for screen wakelock"
-    screenlock=0
-    last_pen_irq_count="0$(get_pen_irq_count)"
-    while true
+    local remaining
+    remaining=1
+    while [[ $remaining -gt 0 ]]
     do
-        if [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
-        then sleep 60
-        else sleep 0.1
-        fi
-        time=${EPOCHREALTIME%%.*}
-        pen_irq_count="0$(get_pen_irq_count)"
-        if [[ $pen_irq_count -gt $last_pen_irq_count ]]
-        then
-            last_pen_irq_count=$pen_irq_count
-            touch /mnt/shm/sleepd_screenlock
-            screen_on_time=$time
-        elif [[ -e /mnt/shm/sleepd_screenlock ]]
+        sleep $remaining
+        if [[ -e /mnt/shm/sleepd_screenlock ]]
         then
             screen_on_time=$(busybox date +%s -r /mnt/shm/sleepd_screenlock)
+            time=${EPOCHREALTIME%%.*}
+            remaining=$((screen_on_time+60-time))
         else
-            screen_on_time=0
-        fi
-        if [[ $((screen_on_time+60)) -gt $time ]]
-        then
-            if [[ $screenlock -eq 0 ]]
-            then
-                screenlock=1
-                sleep 0.5
-                set_screenlock locked
-            fi
-            sleep 10
-        else
-            if [[ $screenlock -eq 1 ]]
-            then
-                screenlock=0
-                set_screenlock unlocked
-            fi
+            remaining=0
         fi
     done
+    set_screenlock unlocked
+}
+
+keep_screen_responsive() {
+    local data
+    # make sure screen stays on while user interacts
+    log "Started child process for screen wakelock"
+    getevent /dev/input/event1 | while read data
+    do
+        if [[ -e /mnt/shm/sleepd_screenlock ]]
+        then
+            # just renew timestamp
+            touch /mnt/shm/sleepd_screenlock
+        elif [[ "$(getprop sys.onyx.pwrmode)" != "mem" ]]
+        then
+            # lock and start timeout process
+            sleep 0.5
+            set_screenlock locked
+            screenlock_timeout &
+        fi
+    done
+    log "Stopped receiving pen input events"
 }
 
 set_wakelock() {
@@ -336,7 +330,7 @@ sleepd() {
     done
 
     refresh_screen
-    log "Refresh screen to indicate sleepd start"
+    log "Screen refresh to indicate sleepd start"
 
     # start reacting to messages
     time=${EPOCHREALTIME%%.*}
