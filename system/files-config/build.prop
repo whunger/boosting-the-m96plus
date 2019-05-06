@@ -39,12 +39,12 @@ ro.carrier=unknown
 #ro.config.notification_sound=OnTheHunt.ogg
 #ro.config.alarm_alert=Alarm_Classic.ogg
 dalvik.vm.heapstartsize=5m
-dalvik.vm.heapgrowthlimit=64m
-dalvik.vm.heapsize=128m
-dalvik.vm.heaptargetutilization=0.70
+dalvik.vm.heapgrowthlimit=96m
+dalvik.vm.heapsize=192m
+dalvik.vm.heaptargetutilization=0.80
 dalvik.vm.heapminfree=512k
 dalvik.vm.heapmaxfree=2m
-ro.config.lowram=true
+#ro.config.lowram=true
 persist.sys.dalvik.vm.lib=libdvm.so
 dalvik.vm.dexopt-flags=m=y
 net.bt.name=M96Plus
