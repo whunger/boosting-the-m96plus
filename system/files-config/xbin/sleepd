@@ -133,24 +133,26 @@ screenlock_timeout() {
 }
 
 keep_screen_responsive() {
-    local data
     # make sure screen stays on while user interacts
     log "Started child process for screen wakelock"
-    getevent /dev/input/event1 | while read data
+    while true
     do
-        if [[ -e /mnt/shm/sleepd_screenlock ]]
+        busybox head -c 1 < /dev/input/event1 > /dev/null
+        if [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
+        then
+            sleep 300
+        elif [[ -e /mnt/shm/sleepd_screenlock ]]
         then
             # just renew timestamp
             touch /mnt/shm/sleepd_screenlock
-        elif [[ "$(getprop sys.onyx.pwrmode)" != "mem" ]]
-        then
+            sleep 3
+        else
             # lock and start timeout process
             sleep 0.5
             set_screenlock locked
             screenlock_timeout &
         fi
     done
-    log "Stopped receiving pen input events"
 }
 
 set_wakelock() {
