@@ -289,11 +289,13 @@ do_enter_suspend() {
 
 do_sleep() {
     log "sleep: sleeping now ..."
+    set_screenlock unlocked
 }
 
 do_wakeup() {
     log "wakeup: init_mixer, blocking for 15 s"
     init_mixer
+    set_screenlock unlocked
     #check_governor performance
     refresh_screen
     block_time=$((time+15))
@@ -512,6 +514,8 @@ while [[ "0$(get_n_blocked)" -gt 0 ]]
 do
     sleep 5
 done
+
+set_screenlock unlocked
 
 keep_screen_responsive &
 keep_screen_responsive_pid=$!
