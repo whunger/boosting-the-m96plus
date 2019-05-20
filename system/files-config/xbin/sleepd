@@ -90,6 +90,9 @@ get_pen_irq_count() {
     done < /proc/interrupts
 }
 
+#root@M96Plus:/storage/sdcard/home # cat /proc/wakelocks
+#name    count   expire_count    wake_count      active_since
+
 is_on_ac() {
     if dumpsys battery | grep "AC powered: true"
     then return 1
@@ -108,6 +111,7 @@ set_screenlock() {
     then
         dumpsys battery reset
         rm -f /mnt/shm/sleepd_screenlock
+        dumpsys battery reset
         log "released screenlock"
     fi
 }
@@ -133,24 +137,34 @@ screenlock_timeout() {
 }
 
 keep_screen_responsive() {
+    local time
+    local t0
     # make sure screen stays on while user interacts
     log "Started child process for screen wakelock"
     while true
     do
         busybox head -c 1 < /dev/input/event1 > /dev/null
-        if [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
+        t0=${EPOCHREALTIME%%.*}
+        sleep 0.1
+        busybox head -c 1 < /dev/input/event1 > /dev/null
+        time=${EPOCHREALTIME%%.*}
+        if [[ $((time-t0)) -gt 1 ]]
+        then
+            log "spurious input"
+        elif [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
         then
             sleep 300
         elif [[ -e /mnt/shm/sleepd_screenlock ]]
         then
             # just renew timestamp
             touch /mnt/shm/sleepd_screenlock
-            sleep 3
+            sleep 30
         else
             # lock and start timeout process
-            sleep 0.5
+            sleep 0.3
             set_screenlock locked
             screenlock_timeout &
+            sleep 30
         fi
     done
 }
@@ -158,8 +172,20 @@ keep_screen_responsive() {
 set_wakelock() {
     # make sure device stays awake while processes wait for i/o
     if [[ "$1" == "locked" ]]
-    then echo sleepd_io > /sys/power/wake_lock
-    else echo sleepd_io > /sys/power/wake_unlock
+    then
+        echo sleepd_io > /sys/power/wake_lock
+        if [[ 0$wakelock -eq 0 ]]
+        then
+            wakelock=1
+            log "Acquired wakelock"
+        fi
+    else
+        echo sleepd_io > /sys/power/wake_unlock
+        if [[ 0$wakelock -eq 1 ]]
+        then
+            wakelock=0
+            log "Released wakelock"
+        fi
     fi
 }
 
@@ -187,7 +213,7 @@ check_governor() {
 
 check_io() {
     # make sure device stays awake while processes wait for i/o
-    if [[ "0$(get_n_blocked)" -gt 0 ]]
+    if [[ "0$(get_n_blocked)" -gt 2 ]]
     then
         set_wakelock locked
         check_governor performance
