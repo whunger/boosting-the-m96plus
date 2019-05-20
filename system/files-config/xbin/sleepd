@@ -146,7 +146,7 @@ keep_screen_responsive() {
         busybox head -c 1 < /dev/input/event1 > /dev/null
         t0=${EPOCHREALTIME%%.*}
         sleep 0.1
-        busybox head -c 1 < /dev/input/event1 > /dev/null
+        busybox timeout -t 2 busybox head -c 1 < /dev/input/event1 > /dev/null
         time=${EPOCHREALTIME%%.*}
         if [[ $((time-t0)) -gt 1 ]]
         then
@@ -213,7 +213,7 @@ check_governor() {
 
 check_io() {
     # make sure device stays awake while processes wait for i/o
-    if [[ "0$(get_n_blocked)" -gt 2 ]]
+    if [[ "0$(get_n_blocked)" -gt 1 ]]
     then
         set_wakelock locked
         check_governor performance
