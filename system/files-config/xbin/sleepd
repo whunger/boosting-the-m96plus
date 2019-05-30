@@ -105,7 +105,6 @@ set_screenlock() {
     then
         touch /mnt/shm/sleepd_screenlock
         dumpsys battery set ac 1
-        dumpsys battery set status 0
         log "locked screen to on state by simulating ac power"
     elif [[ "$1" == "unlocked" ]]
     then
@@ -213,7 +212,7 @@ check_governor() {
 
 check_io() {
     # make sure device stays awake while processes wait for i/o
-    if [[ "0$(get_n_blocked)" -gt 1 ]]
+    if [[ "0$(get_n_blocked)" -gt 3 ]]
     then
         set_wakelock locked
         check_governor performance
@@ -380,7 +379,7 @@ sleepd() {
         if [[ $budget -gt 20 ]]
         then
             [[ "$mode" != "on" ]] && tinymix "ClassD Speaker Control" Off
-            [[ "$mode" != "mem" ]] && check_io
+            #[[ "$mode" != "mem" ]] && check_io
             budget=$((budget/2))
             #log "$budget"
         fi
