@@ -55,48 +55,10 @@ get_cs_time() {
     echo ${up/./}
 }
 
-# * detect user inactivity from /proc/interrupts
-# * detect power button presses from /proc/interrupts
-# * the Hanvon pen is connected to the 2nd uart (IRQ 59)
-# * buttons are connected to GPIO pins
-#
-#  59:     115712       GIC  IMX-uart
-#  87:      63859       GIC  i.MX Timer Tick
-# 338:          0      GPIO  btn power
-# 344:         10      GPIO  btn 4K_pgdn
-# 345:         14      GPIO  btn 5K_left
-# 346:          8      GPIO  btn 4K_pgup
-# 347:         26      GPIO  btn 5K_right
-# 348:          6      GPIO  btn 4K_menu
-# 349:          4      GPIO  btn 5K_ok
-# 350:         10      GPIO  btn 4K_back
-# 351:         36      GPIO  btn 5K_up
-# 352:          2      GPIO  btn VOL_UP
-# 353:         80      GPIO  btn 5K_down
-# 354:          4      GPIO  btn VOL_DOWN
-
-get_pen_irq_count() {
-    local irq
-    local n
-    local type
-    local name
-    while read irq n type name
-    do
-        if [[ "$irq" = "59:" ]]
-        then
-            echo $n
-            break
-        fi
-    done < /proc/interrupts
-}
-
-#root@M96Plus:/storage/sdcard/home # cat /proc/wakelocks
-#name    count   expire_count    wake_count      active_since
-
 is_on_ac() {
     if dumpsys battery | grep "AC powered: true"
-    then return 1
-    else return 0
+    then return 0
+    else return 1
     fi
 }
 
@@ -186,6 +148,8 @@ set_wakelock() {
             log "Released wakelock"
         fi
     fi
+    # cat /proc/wakelocks
+    # name    count   expire_count    wake_count      active_since
 }
 
 check_governor() {
@@ -249,18 +213,23 @@ init_vm() {
     # start writing at 20 MB, don't buffer more than 50 MB:
     echo 2 > /proc/sys/vm/dirty_background_ratio
     echo 5 > /proc/sys/vm/dirty_ratio
-    # Use fs cache!
+    # use fs cache!
     echo 50 > /proc/sys/vm/vfs_cache_pressure
     # Default is 60:
     echo 10 > /proc/sys/vm/swappiness
-    # Limit number of background processes
-    #service call activity 51 i32 3
-    # Limit this process and its children
-    #ulimit -Sv 16384
+    # Default is cfq:
+    echo "deadline" > /sys/block/mmcblk0/queue/scheduler
+    echo "deadline" > /sys/block/mmcblk1/queue/scheduler
+    # read ahead buffer size
+    echo 1024 > /sys/block/mmcblk0/queue/read_ahead_kb
+    echo 1024 > /sys/block/mmcblk1/queue/read_ahead_kb
+    # seems to improve I/O performance
+    echo 1 > /proc/sys/vm/highmem_is_dirtyable
 }
 
 init_swap() {
     [ -e /cache/swap ] && grep -q /cache/swap /proc/swaps || swapon /cache/swap
+    [ -e /data/swap ] && grep -q /data/swap /proc/swaps || swapon /data/swap
 }
 
 change_mode() {
@@ -380,6 +349,7 @@ sleepd() {
         then
             [[ "$mode" != "on" ]] && tinymix "ClassD Speaker Control" Off
             #[[ "$mode" != "mem" ]] && check_io
+            #[[ "$mode" != "mem" ]] && check_governor auto
             budget=$((budget/2))
             #log "$budget"
         fi
@@ -433,14 +403,14 @@ sleepd() {
             log "$line"
             log "Unknown power state!"
             ;;
-        *volume\ state\ changed\ for\ /storage/sdcard*mounted*)
-            log "$line"
-            check_discard /storage/sdcard
-            ;;
-        *volume\ state\ changed\ for\ /storage/extsd*mounted*)
-            log "$line"
-            check_discard /mnt/extsd
-            ;;
+        #*volume\ state\ changed\ for\ /storage/sdcard*mounted*)
+        #    log "$line"
+        #    check_discard /storage/sdcard
+        #    ;;
+        #*volume\ state\ changed\ for\ /storage/extsd*mounted*)
+        #    log "$line"
+        #    check_discard /mnt/extsd
+        #    ;;
         #*android.util.PhoneWindowHelper.onLongPress*)
         *android.hardware.DeviceController.sendOpenAndCloseFrontLightBroadcast*)
             do_screenshot
@@ -487,49 +457,16 @@ log "Set defaults for vm management"
 #settings put system screen_off_timeout 300000
 log "System's screen off timeout is set to $((0$(settings get system screen_off_timeout)/1000)) s"
 
-# settings/system/screen_off_timeout: pid=2731 uid=1000 user=-1 target=4175ab68
-# settings/system/screen_brightness: pid=2731 uid=1000 user=-1 target=417a71c8
-# settings/system/screen_brightness_mode: pid=2731 uid=1000 user=-1 target=417a71c8
-# mPendingRequestLocked=screenState=0, useProximitySensor=false, screenBrightness=48, screenAutoBrightnessAdjustment=0.0, useAutoBrightness=false, blockScreenOn=false
-# mPowerRequest=screenState=0, useProximitySensor=false, screenBrightness=48, screenAutoBrightnessAdjustment=0.0, useAutoBrightness=false, blockScreenOn=false
-# mScreenOn=false
-
-# Screen off timeout: 1800000 ms
-# Screen dim duration: 7000 ms
-# 
-# Wake Locks: size=0
-# 
-# Suspend Blockers: size=4
-#   PowerManagerService.WakeLocks: ref count=0
-#   PowerManagerService.Display: ref count=0
-#   PowerManagerService.Broadcasts: ref count=0
-#   PowerManagerService.WirelessChargerDetector: ref count=0
-# 
-# Screen On Blocker: held=false, mNestCount=0
-# 
-# Display Blanker: blanked=true
+# Other settings:
+# settings/system/screen_brightness
+# settings/system/screen_brightness_mode
 
 #check_discard /storage/sdcard
 #check_discard /mnt/extsd
 
-#init_swap
-
-# Testing:
-#stop power
-#busybox chrt -p -f 90 $(busybox pgrep "EPDC AA")
-#busybox chrt -p -f 91 $(busybox pgrep "EPDC Submit")
-#busybox chrt -p -f 92 $(busybox pgrep "EPDC Interrupt")
-#busybox chrt -p -f 95 $(busybox pgrep /system/bin/surfaceflinger)
-#busybox chrt -p -f 90 $(busybox pgrep /system/bin/onyx_tpd)
+init_swap
 
 # From Kernel 3.4 on ... setprop sys.sysctl.extra_free_kbytes 16384
-
-#am broadcast -a android.intent.action.BOOT_COMPLETED -c android.intent.category.HOME -n ui.robot.rotatedonate/.MyEventReceiver
-#am broadcast -a android.intent.action.BOOT_COMPLETED -n ui.robot.rotatedonate/.MyEventReceiver
-#am broadcast -a android.intent.action.BOOT_COMPLETED
-#am broadcast -a android.intent.action.BOOT_COMPLETED -n org.crape.rotationcontrol/org.crape.rotationcontrol.BroadcastBootCompletedReceiver
-#am start org.crape.rotationcontrol/.RotationControlActivity
-#am broadcast -a android.intent.action.CONFIGURATION_CHANGED -n org.crape.rotationcontrol/org.crape.rotationcontrol.RotationControlService
 
 init_screen
 log "Set defaults for screen performance"
@@ -549,7 +486,3 @@ logcat -b system -b main -b events | sleepd
 
 # * sys.onyx.pwrmode can be one of on/standby/mem
 # * to test with adb running use "dumpsys battery set ac 0"
-#
-# [hw.backlight.dev]: [pwm-backlight.0]
-# [sys.onyx.pwrmode]: [standby]
-# android.intent.action.USER_PRESENT
