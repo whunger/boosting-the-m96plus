@@ -154,24 +154,21 @@ io_watchdog() {
     local n_sdma_before
     local n_sdma
     log "Started child process for I/O dependent workarounds"
-    n_sdma_before=$(get_sdma_irq_count)
+    n_sdma_before="0$(get_sdma_irq_count)"
     time=${EPOCHREALTIME%%.*}
     mmc_read_time=$((time+600))
     check_io_time=$((time+3))
     check_sdma_time=$((time+1))
     while true
     do
+        time=${EPOCHREALTIME%%.*}
         if [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
         then
-            sleep 300
-        else
-            sleep 1
-        fi
-        time=${EPOCHREALTIME%%.*}
-        if [[ $time -gt $check_sdma_time ]]
+            tinymix "ClassD Speaker Control" Off
+        elif [[ $time -ge $check_sdma_time ]]
         then
             # make sure speakers are muted when not in use
-            n_sdma=$(get_sdma_irq_count)
+            n_sdma="0$(get_sdma_irq_count)"
             if [[ $n_sdma -gt $n_sdma_before ]]
             then
                 # DMA activity = sound playing
@@ -181,17 +178,22 @@ io_watchdog() {
             fi
             check_sdma_time=$((time+1))
         fi
-        if [[ $time -gt $mmc_read_time ]]
+        if [[ $time -ge $mmc_read_time ]]
         then
             # regularly read 5 MB from mmcblk1 to keep it alive
             grep -q mmcblk1 /proc/partitions && dd if=/dev/block/mmcblk1 of=/dev/null count=10000 2>/dev/null
             mmc_read_time=$((time+600))
         fi
-        if [[ $time -gt $check_io_time ]]
+        if [[ $time -ge $check_io_time ]]
         then
-            check_io
+            if [[ "0$(get_n_blocked)" -ge 3 ]]
+            then
+                check_governor performance
+                echo 1 > /proc/sys/vm/drop_caches
+            fi
             check_io_time=$((time+3))
         fi
+        sleep 1
     done
 }
 
