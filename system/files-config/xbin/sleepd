@@ -167,7 +167,7 @@ io_watchdog() {
         else
             sleep 1
         fi
-
+        time=${EPOCHREALTIME%%.*}
         if [[ $time -gt $check_sdma_time ]]
         then
             # make sure speakers are muted when not in use
@@ -181,14 +181,12 @@ io_watchdog() {
             fi
             check_sdma_time=$((time+1))
         fi
-
         if [[ $time -gt $mmc_read_time ]]
         then
             # regularly read 5 MB from mmcblk1 to keep it alive
             grep -q mmcblk1 /proc/partitions && dd if=/dev/block/mmcblk1 of=/dev/null count=10000 2>/dev/null
             mmc_read_time=$((time+600))
         fi
-
         if [[ $time -gt $check_io_time ]]
         then
             check_io
