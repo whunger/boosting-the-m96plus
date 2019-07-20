@@ -55,6 +55,22 @@ get_cs_time() {
     echo ${up/./}
 }
 
+get_sdma_irq_count() {
+    # detect sound playback activity from /proc/interrupts:
+    # 34:     380783       GIC  sdma
+    local irq
+    local n
+    local remainder
+    while read irq n remainder
+    do
+        if [[ "$irq" = "34:" ]]
+        then
+            echo $n
+            break
+        fi
+    done < /proc/interrupts
+}
+
 is_on_ac() {
     if dumpsys battery | grep "AC powered: true"
     then return 0
@@ -130,6 +146,57 @@ keep_screen_responsive() {
     done
 }
 
+io_watchdog() {
+    local time
+    local mmc_read_time
+    local check_io_time
+    local check_sdma_time
+    local n_sdma_before
+    local n_sdma
+    log "Started child process for I/O dependent workarounds"
+    n_sdma_before=$(get_sdma_irq_count)
+    time=${EPOCHREALTIME%%.*}
+    mmc_read_time=$((time+600))
+    check_io_time=$((time+3))
+    check_sdma_time=$((time+1))
+    while true
+    do
+        if [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
+        then
+            sleep 300
+        else
+            sleep 1
+        fi
+
+        if [[ $time -gt $check_sdma_time ]]
+        then
+            # make sure speakers are muted when not in use
+            n_sdma=$(get_sdma_irq_count)
+            if [[ $n_sdma -gt $n_sdma_before ]]
+            then
+                # DMA activity = sound playing
+                n_sdma_before=$n_sdma
+            else
+                tinymix "ClassD Speaker Control" Off
+            fi
+            check_sdma_time=$((time+1))
+        fi
+
+        if [[ $time -gt $mmc_read_time ]]
+        then
+            # regularly read 5 MB from mmcblk1 to keep it alive
+            grep -q mmcblk1 /proc/partitions && dd if=/dev/block/mmcblk1 of=/dev/null count=10000 2>/dev/null
+            mmc_read_time=$((time+600))
+        fi
+
+        if [[ $time -gt $check_io_time ]]
+        then
+            check_io
+            check_io_time=$((time+3))
+        fi
+    done
+}
+
 set_wakelock() {
     # make sure device stays awake while processes wait for i/o
     if [[ "$1" == "locked" ]]
@@ -178,10 +245,11 @@ check_io() {
     # make sure device stays awake while processes wait for i/o
     if [[ "0$(get_n_blocked)" -gt 3 ]]
     then
-        set_wakelock locked
+        #set_wakelock locked
         check_governor performance
-    else
-        set_wakelock unlocked
+        echo 1 > /proc/sys/vm/drop_caches
+    #else
+        #set_wakelock unlocked
     fi
 }
 
@@ -213,13 +281,13 @@ init_vm() {
     # start writing at 20 MB, don't buffer more than 50 MB:
     echo 2 > /proc/sys/vm/dirty_background_ratio
     echo 5 > /proc/sys/vm/dirty_ratio
-    # use fs cache!
-    echo 50 > /proc/sys/vm/vfs_cache_pressure
+    # instead of echo 1 > /proc/sys/vm/drop_caches
+    #echo 1000 > /proc/sys/vm/vfs_cache_pressure
     # Default is 60:
     echo 10 > /proc/sys/vm/swappiness
     # Default is cfq:
-    echo "deadline" > /sys/block/mmcblk0/queue/scheduler
-    echo "deadline" > /sys/block/mmcblk1/queue/scheduler
+    echo "noop" > /sys/block/mmcblk0/queue/scheduler
+    echo "noop" > /sys/block/mmcblk1/queue/scheduler
     # read ahead buffer size
     echo 1024 > /sys/block/mmcblk0/queue/read_ahead_kb
     echo 1024 > /sys/block/mmcblk1/queue/read_ahead_kb
@@ -265,6 +333,7 @@ do_restart_power_service() {
     start power
     log "restart_power_service: exiting to induce restart"
     kill $keep_screen_responsive_pid
+    kill $io_watchdog_pid
     exit 33
 }
 
@@ -332,27 +401,13 @@ sleepd() {
 
     # start reacting to messages
     time=${EPOCHREALTIME%%.*}
-    cs_time=$(get_cs_time)
     ping_time=$((time+60))
     ping_count=0
     exit_time=$((time+3600*24))
     block_time=$((time+1))
-    budget=128
     while read line
     do
         time=${EPOCHREALTIME%%.*}
-        last_cs_time=$cs_time
-        cs_time=$(get_cs_time)
-        budget=$((budget+cs_time-last_cs_time))  # + 7/s
-
-        if [[ $budget -gt 20 ]]
-        then
-            [[ "$mode" != "on" ]] && tinymix "ClassD Speaker Control" Off
-            #[[ "$mode" != "mem" ]] && check_io
-            #[[ "$mode" != "mem" ]] && check_governor auto
-            budget=$((budget/2))
-            #log "$budget"
-        fi
 
         # check for messages to react to
         case "$line" in
@@ -435,6 +490,7 @@ sleepd() {
         then
             log "unable to receive pings, exiting to induce restart"
             kill $keep_screen_responsive_pid
+            kill $io_watchdog_pid
             exit 33
         fi
     done
@@ -443,9 +499,6 @@ sleepd() {
 
 marker="== started sleepd $$ at $(date) =="
 log "$marker"
-
-#echo 1000000 > /sys/power/device_suspend_time_threshold
-#log "Increased device_suspend_time_threshold=$(cat /sys/power/device_suspend_time_threshold)"
 
 init_mixer
 log "Set mixer defaults"
@@ -457,14 +510,10 @@ log "Set defaults for vm management"
 #settings put system screen_off_timeout 300000
 log "System's screen off timeout is set to $((0$(settings get system screen_off_timeout)/1000)) s"
 
-# Other settings:
-# settings/system/screen_brightness
-# settings/system/screen_brightness_mode
-
 #check_discard /storage/sdcard
 #check_discard /mnt/extsd
 
-init_swap
+#init_swap
 
 # From Kernel 3.4 on ... setprop sys.sysctl.extra_free_kbytes 16384
 
@@ -481,6 +530,9 @@ set_screenlock unlocked
 
 keep_screen_responsive &
 keep_screen_responsive_pid=$!
+
+io_watchdog &
+io_watchdog_pid=$!
 
 logcat -b system -b main -b events | sleepd
 
