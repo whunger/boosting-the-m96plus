@@ -148,24 +148,21 @@ keep_screen_responsive() {
 
 io_watchdog() {
     local time
-    local mmc_read_time
-    local check_io_time
     local check_sdma_time
+    #local mmc_read_time
+    local check_io_time
     local n_sdma_before
     local n_sdma
     log "Started child process for I/O dependent workarounds"
     n_sdma_before="0$(get_sdma_irq_count)"
     time=${EPOCHREALTIME%%.*}
-    mmc_read_time=$((time+600))
-    check_io_time=$((time+3))
     check_sdma_time=$((time+1))
+    #mmc_read_time=$((time+600))
+    check_io_time=$((time+3))
     while true
     do
         time=${EPOCHREALTIME%%.*}
-        if [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
-        then
-            tinymix "ClassD Speaker Control" Off
-        elif [[ $time -ge $check_sdma_time ]]
+        if [[ $time -ge $check_sdma_time ]]
         then
             # make sure speakers are muted when not in use
             n_sdma="0$(get_sdma_irq_count)"
@@ -178,12 +175,13 @@ io_watchdog() {
             fi
             check_sdma_time=$((time+1))
         fi
-        if [[ $time -ge $mmc_read_time ]]
-        then
-            # regularly read 5 MB from mmcblk1 to keep it alive
-            grep -q mmcblk1 /proc/partitions && dd if=/dev/block/mmcblk1 of=/dev/null count=10000 2>/dev/null
-            mmc_read_time=$((time+600))
-        fi
+        #if [[ $time -ge $mmc_read_time ]]
+        #then
+        #    # regularly read 5 MB from mmcblk1 to keep it alive
+        #    #grep -q mmcblk1 /proc/partitions && dd if=/dev/block/mmcblk1 of=/dev/null count=10000 2>/dev/null
+        #    busybox hdparm -tT /dev/block/mmcblk1 >/dev/null
+        #    mmc_read_time=$((time+600))
+        #fi
         if [[ $time -ge $check_io_time ]]
         then
             if [[ "0$(get_n_blocked)" -ge 3 ]]
@@ -408,6 +406,8 @@ sleepd() {
     while read line
     do
         time=${EPOCHREALTIME%%.*}
+
+        [[ "$mode" = "mem" ]] && tinymix "ClassD Speaker Control" Off
 
         # check for messages to react to
         case "$line" in
