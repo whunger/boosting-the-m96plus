@@ -314,7 +314,7 @@ init_vm() {
     echo 2 > /proc/sys/vm/dirty_background_ratio
     echo 10 > /proc/sys/vm/dirty_ratio
     # instead of echo 1 > /proc/sys/vm/drop_caches
-    echo 1000 > /proc/sys/vm/vfs_cache_pressure
+    #echo 1000 > /proc/sys/vm/vfs_cache_pressure
     # Default is 2884:
     echo 32768 > /proc/sys/vm/min_free_kbytes
     # Default is 60:
