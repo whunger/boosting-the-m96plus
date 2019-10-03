@@ -71,6 +71,22 @@ get_sdma_irq_count() {
     done < /proc/interrupts
 }
 
+get_mmc1_irq_count() {
+    # detect mmc1 activity from /proc/interrupts:
+    # 54:      55724       GIC  mmc1
+    local irq
+    local n
+    local remainder
+    while read irq n remainder
+    do
+        if [[ "$irq" = "54:" ]]
+        then
+            echo $n
+            break
+        fi
+    done < /proc/interrupts
+}
+ 
 is_on_ac() {
     if dumpsys battery | grep "AC powered: true"
     then return 0
@@ -149,16 +165,23 @@ keep_screen_responsive() {
 io_watchdog() {
     local time
     local check_sdma_time
-    #local mmc_read_time
+    #local check_mmc_time
     local check_io_time
     local n_sdma_before
     local n_sdma
+    #local n_mmc1_before
+    #local n_mmc1
+    local sound_active
+    #local mmc1_active
     log "Started child process for I/O dependent workarounds"
     n_sdma_before="0$(get_sdma_irq_count)"
+    #n_mmc1_before="0$(get_mmc1_irq_count)"
     time=${EPOCHREALTIME%%.*}
     check_sdma_time=$((time+1))
-    #mmc_read_time=$((time+600))
-    check_io_time=$((time+3))
+    #check_mmc_time=$((time+300))
+    check_io_time=$((time+30))
+    sound_active=1
+    #mmc1_active=1
     while true
     do
         time=${EPOCHREALTIME%%.*}
@@ -170,26 +193,29 @@ io_watchdog() {
             then
                 # DMA activity = sound playing
                 n_sdma_before=$n_sdma
+                sound_active=1
             else
                 tinymix "ClassD Speaker Control" Off
+                sound_active=0
             fi
             check_sdma_time=$((time+1))
         fi
-        #if [[ $time -ge $mmc_read_time ]]
+        #if [[ $time -ge $check_mmc_time ]]
         #then
-        #    # regularly read 5 MB from mmcblk1 to keep it alive
-        #    #grep -q mmcblk1 /proc/partitions && dd if=/dev/block/mmcblk1 of=/dev/null count=10000 2>/dev/null
-        #    busybox hdparm -tT /dev/block/mmcblk1 >/dev/null
-        #    mmc_read_time=$((time+600))
+        #    n_mmc1="0$(get_mmc1_irq_count)"
+        #    if [[ $n_mmc1 -gt $n_mmc1_before ]]
+        #    then
+        #        n_mmc1_before=$n_mmc1
+        #        mmc1_active=1
+        #    else
+        #        mmc1_active=0
+        #    fi
+        #    check_mmc_time=$((time+300))
         #fi
         if [[ $time -ge $check_io_time ]]
         then
-            if [[ "0$(get_n_blocked)" -ge 3 ]]
-            then
-                check_governor performance
-                echo 1 > /proc/sys/vm/drop_caches
-            fi
-            check_io_time=$((time+3))
+            check_io
+            check_io_time=$((time+30))
         fi
         sleep 1
     done
@@ -243,11 +269,14 @@ check_io() {
     # make sure device stays awake while processes wait for i/o
     if [[ "0$(get_n_blocked)" -gt 3 ]]
     then
-        #set_wakelock locked
+        set_wakelock locked
         check_governor performance
-        echo 1 > /proc/sys/vm/drop_caches
-    #else
-        #set_wakelock unlocked
+        sync
+        #echo 1 > /proc/sys/vm/drop_caches
+        #dd if=/dev/zero of=/mnt/shm/x bs=1024 count=20000
+        #rm /mnt/shm/x
+    else
+        set_wakelock unlocked
     fi
 }
 
@@ -273,24 +302,36 @@ init_screen() {
     settings put global transition_animation_scale 0.0
     setprop persist.sys.ui.hw true
     busybox renice -10 $(busybox pgrep /system/bin/surfaceflinger)
+    busybox renice -19 $(busybox pgrep /system/bin/onyx_tpd)
 }
 
 init_vm() {
-    # start writing at 20 MB, don't buffer more than 50 MB:
+    # Aggressive LMK:
+    #echo "6400,7680,11520,25600,35840,38400" > /sys/module/lowmemorykiller/parameters/minfree
+    # Default LMK:
+    echo "12288,15360,18432,21504,24576,30720" > /sys/module/lowmemorykiller/parameters/minfree
+    # start writing at 20 MB, don't buffer more than 100 MB:
     echo 2 > /proc/sys/vm/dirty_background_ratio
-    echo 5 > /proc/sys/vm/dirty_ratio
+    echo 10 > /proc/sys/vm/dirty_ratio
     # instead of echo 1 > /proc/sys/vm/drop_caches
-    #echo 1000 > /proc/sys/vm/vfs_cache_pressure
+    echo 1000 > /proc/sys/vm/vfs_cache_pressure
+    # Default is 2884:
+    echo 32768 > /proc/sys/vm/min_free_kbytes
     # Default is 60:
-    echo 10 > /proc/sys/vm/swappiness
+    #echo 0 > /proc/sys/vm/swappiness
+    # seems to improve I/O performance
+    #echo 1 > /proc/sys/vm/highmem_is_dirtyable
     # Default is cfq:
-    echo "noop" > /sys/block/mmcblk0/queue/scheduler
-    echo "noop" > /sys/block/mmcblk1/queue/scheduler
+    echo "deadline" > /sys/block/mmcblk0/queue/scheduler
     # read ahead buffer size
     echo 1024 > /sys/block/mmcblk0/queue/read_ahead_kb
-    echo 1024 > /sys/block/mmcblk1/queue/read_ahead_kb
-    # seems to improve I/O performance
-    echo 1 > /proc/sys/vm/highmem_is_dirtyable
+    if mount | grep -q /mnt/extsd
+    then
+        log "setting mmcblk1 queue parameters"
+        echo "noop" > /sys/block/mmcblk1/queue/scheduler
+        echo 1024 > /sys/block/mmcblk1/queue/read_ahead_kb
+        busybox renice -15 $(busybox pgrep "mmcqd/1")
+    fi
 }
 
 init_swap() {
@@ -458,14 +499,10 @@ sleepd() {
             log "$line"
             log "Unknown power state!"
             ;;
-        #*volume\ state\ changed\ for\ /storage/sdcard*mounted*)
-        #    log "$line"
-        #    check_discard /storage/sdcard
-        #    ;;
-        #*volume\ state\ changed\ for\ /storage/extsd*mounted*)
-        #    log "$line"
-        #    check_discard /mnt/extsd
-        #    ;;
+        *volume\ state\ changed\ for\ /storage/*\ mounted*)
+            log "$line"
+            init_vm
+            ;;
         #*android.util.PhoneWindowHelper.onLongPress*)
         *android.hardware.DeviceController.sendOpenAndCloseFrontLightBroadcast*)
             do_screenshot
@@ -520,12 +557,6 @@ log "System's screen off timeout is set to $((0$(settings get system screen_off_
 init_screen
 log "Set defaults for screen performance"
 
-log "Waiting for system to settle ..."
-while [[ "0$(get_n_blocked)" -gt 0 ]]
-do
-    sleep 5
-done
-
 set_screenlock unlocked
 
 keep_screen_responsive &
@@ -533,6 +564,12 @@ keep_screen_responsive_pid=$!
 
 io_watchdog &
 io_watchdog_pid=$!
+
+log "Waiting for system to settle ..."
+while [[ "0$(get_n_blocked)" -gt 0 ]]
+do
+    sleep 5
+done
 
 logcat -b system -b main -b events | sleepd
 
