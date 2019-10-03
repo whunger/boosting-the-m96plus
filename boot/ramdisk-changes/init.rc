@@ -114,8 +114,9 @@ loglevel 3
     write /proc/sys/kernel/panic_on_oops 1
     write /proc/sys/kernel/hung_task_timeout_secs 0
     write /proc/cpu/alignment 4
-    write /proc/sys/kernel/sched_latency_ns 10000000
-    write /proc/sys/kernel/sched_wakeup_granularity_ns 1000000
+    write /proc/sys/kernel/sched_latency_ns 24000000
+    write /proc/sys/kernel/sched_min_granularity_ns 8000000
+    write /proc/sys/kernel/sched_wakeup_granularity_ns 10000000
     write /proc/sys/kernel/sched_compat_yield 1
     write /proc/sys/kernel/sched_child_runs_first 0
     write /proc/sys/kernel/randomize_va_space 2
@@ -327,10 +328,17 @@ on boot
     chown root system /sys/module/lowmemorykiller/parameters/minfree
     chmod 0664 /sys/module/lowmemorykiller/parameters/minfree
     # defaults: 12288,15360,18432,21504,24576,30720
-    # ",".join(str(i+96*1024) for i in [int(s) for s in "12288,15360,18432,21504,24576,30720".split(",")])
-    write /sys/module/lowmemorykiller/parameters/minfree 110592,113664,116736,119808,122880,129024
+    #write /sys/module/lowmemorykiller/parameters/minfree 1536,2048,4096,5120,15360,23040
+    # Aggressive:
+    # Foreground Applications: 6400
+    # Visible Applications: 7680
+    # Secondary Server: 11520
+    # Hidden Applications: 25600
+    # Content Providers: 35840
+    # Empty Applications: 38400
+    write /sys/module/lowmemorykiller/parameters/minfree 6400,7680,11520,25600,35840,38400
     # Default is 60:
-    write /proc/sys/vm/swappiness 10
+    #write /proc/sys/vm/swappiness 0
 
     # Tweak background writeout
     #write /proc/sys/vm/dirty_expire_centisecs 150  # default 3000
@@ -339,16 +347,18 @@ on boot
     #write /proc/sys/vm/dirty_background_ratio 5
     #write /proc/sys/vm/dirty_ratio 20
     # Start writing at 20 MB, don't buffer more than 50 MB:
-    write /proc/sys/vm/dirty_background_ratio 2
-    write /proc/sys/vm/dirty_ratio 5
+    #write /proc/sys/vm/dirty_background_ratio 2
+    #write /proc/sys/vm/dirty_ratio 5
     # Use fs cache!
     #write /proc/sys/vm/vfs_cache_pressure 50
     # Instead of echo 1 > /proc/sys/vm/drop_caches:
     #write /proc/sys/vm/vfs_cache_pressure 1000
+    # Default is 2884:
+    #write /proc/sys/vm/min_free_kbytes 32768
 
     # Faster I/O? From https://sites.google.com/site/tweakradje/android/android-tweaking
     # (might trigger OOM killer)
-    write /proc/sys/vm/highmem_is_dirtyable 1
+    #write /proc/sys/vm/highmem_is_dirtyable 1
 
     # Tweak the mmc device read ahead buffer size
     # https://forum.xda-developers.com/general/general/ref-to-date-guide-cpu-governors-o-t3048957
@@ -356,13 +366,13 @@ on boot
     write /sys/block/mmcblk1/queue/read_ahead_kb 1024
 
     # Define I/O schedulers to use for mmc
-    write /sys/block/mmcblk0/queue/scheduler "noop"
+    write /sys/block/mmcblk0/queue/scheduler "deadline"
     write /sys/block/mmcblk1/queue/scheduler "noop"
 
     # Memory or CPU?
-    #write /sys/kernel/mm/ksm/run 1
-    #write /sys/kernel/mm/ksm/sleep_millisecs 1000
-    #write /sys/kernel/mm/ksm/pages_to_scan 128
+    write /sys/kernel/mm/ksm/run 0
+    write /sys/kernel/mm/ksm/sleep_millisecs 1000
+    write /sys/kernel/mm/ksm/pages_to_scan 128
 
     # Permissions for System Server and daemons.
     chown radio system /sys/android_power/state
@@ -622,6 +632,7 @@ service surfaceflinger /system/bin/surfaceflinger
     class main
     user root
     group graphics drmrpc
+    ioprio rt 2
     onrestart restart zygote
 
 service zygote /system/bin/app_process -Xzygote /system/bin --zygote --start-system-server
