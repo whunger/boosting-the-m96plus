@@ -3,9 +3,11 @@
 # The filesystem that contains the filesystem checker binary (typically /system) cannot
 # specify MF_CHECK, and must come before any filesystems that do specify MF_CHECK
 
-/devices/platform/sdhci-esdhc-imx.0/mmc_host/mmc1 /mnt/extsd vfat defaults voldmanaged=extsd:auto
+#/devices/platform/sdhci-esdhc-imx.0/mmc_host/mmc1 /mnt/extsd vfat defaults voldmanaged=extsd:auto
+/devices/platform/sdhci-esdhc-imx.0/mmc_host/mmc1 /mnt/extsd vfat discard,noatime,norelatime,nosuid,nodev,noexec voldmanaged=extsd:auto
 #/devices/platform/fsl-ehci /mnt/media_rw/udisk vfat defaults voldmanaged=udisk:auto
-/devices/platform/sdhci-esdhc-imx.1/mmc_host/mmc0 /storage/sdcard vfat defaults voldmanaged=sdcard:4,noemulatedsd
+#/devices/platform/sdhci-esdhc-imx.1/mmc_host/mmc0 /storage/sdcard vfat defaults voldmanaged=sdcard:4,noemulatedsd
+/devices/platform/sdhci-esdhc-imx.1/mmc_host/mmc0 /storage/sdcard vfat discard,noatime,norelatime,nosuid,nodev,noexec voldmanaged=sdcard:4,noemulatedsd
 #/dev/block/mmcblk0p4    /storage/sdcard vfat defaults                                                                         wait
 /dev/block/mmcblk0p5    /system      ext4    ro                                                                               wait
 /dev/block/mmcblk0p7    /data        ext4    nosuid,nodev,nodiratime,noatime,nomblk_io_submit,noauto_da_alloc,errors=panic,discard    wait,encryptable=footer
