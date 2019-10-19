@@ -63,9 +63,7 @@ on boot
     setprop persist.sampling_profiler 1
 
     # Surfaceflinger experiments
-    #setprop debug.sf.ddms
-    setprop debug.sf.no_hw_vsync 1
-
+    #setprop debug.sf.no_hw_vsync 1
 
 # change for FSL specific service
     chown root system /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
@@ -96,6 +94,7 @@ on boot
     chown system system /sys/class/backlight/pwm-backlight.0/brightness
     chmod 0660 /sys/class/backlight/pwm-backlight.0/brightness
 
+
     # No bluetooth hardware present
     setprop wlan.interface wlan0
 
@@ -105,23 +104,16 @@ on boot
 
 # changes from 4.0.4
     # Add support wakeup system from debug UART
-    write /sys/devices/platform/imx-uart.0/tty/ttymxc0/power/wakeup disabled
+    #write /sys/devices/platform/imx-uart.0/tty/ttymxc0/power/wakeup disabled
 
     # Indicate device type is tablet or SystemUI has problem without HW acceleration
     # with typo
-    setprop sys.devicy.type tablet
+    #setprop sys.devicy.type tablet
     # without typo
     setprop sys.device.type tablet
 
     # disable animation for eink
     setprop ro.product.display eink
-
-    # Disable KEYGUARD
-    #setprop ro.ONYX_DISABLE_KEYGUARD 1
-
-    # Trying to get rid of clicks
-    #write /sys/devices/platform/imx-wm8960.0/power/control on
-    #write /sys/devices/platform/imx-wm8960.0/power/autosuspend_delay_ms -1
 
 # mount the debugfs
     mount debugfs none /sys/kernel/debug/
