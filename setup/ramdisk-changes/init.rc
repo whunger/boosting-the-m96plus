@@ -1,0 +1,93 @@
+import /init.recovery.${ro.hardware}.rc
+
+on early-init
+    start ueventd
+    start healthd
+
+on init
+    export PATH /sbin:/system/bin:/usr/bin
+    export ANDROID_ROOT /system
+    export ANDROID_DATA /data
+    export EXTERNAL_STORAGE /sdcard
+
+    symlink /etc /system/etc
+    symlink /bin /system/bin
+    symlink /bin/busybox /sbin/sh
+    symlink /proc/mounts /etc/mtab
+
+    mkdir /storage
+    mkdir /storage/sdcard
+    mkdir /sdcard
+    mkdir /system
+    mkdir /data
+    mkdir /cache
+    mount /tmp /tmp tmpfs
+    mkdir /vendor
+
+    chown root shell /tmp
+    chmod 0775 /tmp
+
+    chmod 4755 /bin/busybox
+
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 18D1
+    write /sys/class/android_usb/android0/idProduct D001
+    write /sys/class/android_usb/android0/functions adb
+    write /sys/class/android_usb/android0/iManufacturer ${ro.product.manufacturer}
+    write /sys/class/android_usb/android0/iProduct ${ro.product.model}
+    write /sys/class/android_usb/android0/iSerial ${ro.serialno}
+
+
+on boot
+
+    ifup lo
+    hostname localhost
+    domainname localdomain
+
+    # Tweak background writeout
+    write /proc/sys/vm/dirty_expire_centisecs 50
+    write /proc/sys/vm/dirty_writeback_centisecs 100
+    # Start writing at 20 MB, don't buffer more than 50 MB (RAM = 1G):
+    write /proc/sys/vm/dirty_background_ratio 2
+    write /proc/sys/vm/dirty_ratio 5
+    # This is the most important change to prevent hangs! (default is 2884):
+    write /proc/sys/vm/min_free_kbytes 32768
+
+    # Tweak the mmc device read ahead buffer size
+    write /sys/block/mmcblk0/queue/read_ahead_kb 1024
+    write /sys/block/mmcblk1/queue/read_ahead_kb 1024
+
+    # Define I/O schedulers to use for mmc
+    write /sys/block/mmcblk0/queue/scheduler "deadline"
+    write /sys/block/mmcblk1/queue/scheduler "noop"
+
+    # Effectively disable downscaling:
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 996000
+
+    class_start default
+
+on property:sys.powerctl=*
+   powerctl ${sys.powerctl}
+
+service ueventd /sbin/ueventd
+    critical
+
+service healthd /sbin/healthd -n
+    critical
+
+service recovery /sbin/recovery
+
+service adbd /sbin/adbd recovery
+    disabled
+    socket adbd stream 660 system system
+
+# Always start adbd on userdebug and eng builds
+on property:ro.debuggable=1
+    write /sys/class/android_usb/android0/enable 1
+    start adbd
+
+# Restart adbd so it can run as root
+on property:service.adb.root=1
+    write /sys/class/android_usb/android0/enable 0
+    restart adbd
+    write /sys/class/android_usb/android0/enable 1
