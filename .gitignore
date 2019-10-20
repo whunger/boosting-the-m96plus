@@ -9,3 +9,12 @@ recovery/ramdisk-twrp/*
 recovery/ramdisk-patched/*
 system/bootanimation-elephants/*
 system/bootanimation-swirl/*
+setup/installer/*
+boot-eng/boot-orig/*
+boot-eng/ramdisk-orig/*
+boot-mtp/boot-orig/*
+boot-mtp/ramdisk-orig/*
+boot-mtp/ramdisk-patched/*
+recovery/ramdisk-patched-twrp/*
+setup/installer
+setup/*.log
