@@ -306,20 +306,27 @@ init_screen() {
 }
 
 init_vm() {
-    # Aggressive LMK:
+    # Aggressive:
+    # Foreground Applications: 6400
+    # Visible Applications: 7680
+    # Secondary Server: 11520
+    # Hidden Applications: 25600
+    # Content Providers: 35840
+    # Empty Applications: 38400
     #echo "6400,7680,11520,25600,35840,38400" > /sys/module/lowmemorykiller/parameters/minfree
     # Default LMK:
-    echo "12288,15360,18432,21504,24576,30720" > /sys/module/lowmemorykiller/parameters/minfree
+    #echo "12288,15360,18432,21504,24576,30720" > /sys/module/lowmemorykiller/parameters/minfree
     # start writing at 20 MB, don't buffer more than 100 MB:
-    echo 2 > /proc/sys/vm/dirty_background_ratio
-    echo 10 > /proc/sys/vm/dirty_ratio
+    #echo 2 > /proc/sys/vm/dirty_background_ratio
+    #echo 10 > /proc/sys/vm/dirty_ratio
     # instead of echo 1 > /proc/sys/vm/drop_caches
     #echo 1000 > /proc/sys/vm/vfs_cache_pressure
     # Default is 2884:
-    echo 32768 > /proc/sys/vm/min_free_kbytes
+    #echo 32768 > /proc/sys/vm/min_free_kbytes
     # Default is 60:
     #echo 0 > /proc/sys/vm/swappiness
-    # seems to improve I/O performance
+    # Faster I/O? From https://sites.google.com/site/tweakradje/android/android-tweaking
+    # Seems to improve I/O performance (and might trigger OOM killer).
     #echo 1 > /proc/sys/vm/highmem_is_dirtyable
     # Default is cfq:
     echo "deadline" > /sys/block/mmcblk0/queue/scheduler
@@ -332,6 +339,10 @@ init_vm() {
         echo 1024 > /sys/block/mmcblk1/queue/read_ahead_kb
         busybox renice -15 $(busybox pgrep "mmcqd/1")
     fi
+    # Memory or CPU?
+    #echo 1 > /sys/kernel/mm/ksm/run
+    #echo 1000 > /sys/kernel/mm/ksm/sleep_millisecs
+    #echo 128 > /sys/kernel/mm/ksm/pages_to_scan
 }
 
 init_swap() {
@@ -575,3 +586,12 @@ logcat -b system -b main -b events | sleepd
 
 # * sys.onyx.pwrmode can be one of on/standby/mem
 # * to test with adb running use "dumpsys battery set ac 0"
+
+#write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
+# Set timer 5ms, min sample 10s, hispeed at cpufreq MAX freq in freq_table at load 25%
+#write /sys/devices/system/cpu/cpufreq/interactive/timer_rate 5000
+#write /sys/devices/system/cpu/cpufreq/interactive/input_boost 1
+#write /sys/devices/system/cpu/cpufreq/interactive/min_sample_time 10000000
+#write /sys/devices/system/cpu/cpufreq/interactive/go_hispeed_load 10
+#write /sys/devices/system/cpu/cpufreq/interactive/io_is_busy 1
+#write /sys/devices/system/cpu/cpufreq/interactive/hispeed_freq 792000

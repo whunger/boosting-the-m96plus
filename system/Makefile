@@ -1,4 +1,9 @@
-all: install-supersu install-tpd install-config
+all: system-patched-img
+
+include systemimage.mk
+
+system.img:
+	unzip -j ../M96_KK_2017-05-02_19-37_dev_fbc2cc2_user.zip "M96_2017-05-02_19-37_dev_fbc2cc2_user/Profiles/MX6SL Linux Update/OS Firmware/files/android/system.img"
 
 files-supersu.tgz: files-supersu $(shell find files-supersu/ -type f)
 	tar czvf files-supersu.tgz -C files-supersu .
@@ -11,66 +16,39 @@ files-config.tgz: files-config $(shell find files-config/ -type f) files-config/
 
 install-supersu: install-supersu.sh files-supersu.tgz
 	adb push install-supersu.sh files-supersu.tgz /mnt/sdcard/
-	adb shell "cd /mnt/sdcard && su -c 'sh install-supersu.sh; rm install-supersu.sh files-supersu.tgz'"
+	adb shell -n "su -c 'mount -o remount,rw /system'"
+	adb shell "cd /mnt/sdcard && su -c 'sh install-supersu.sh /system; rm install-supersu.sh files-supersu.tgz'"
 	adb shell "su -c 'mount -o remount,ro /system'"
 
 install-tpd: install-tpd.sh files-tpd.tgz
 	adb push install-tpd.sh files-tpd.tgz /mnt/sdcard/
-	adb shell "cd /mnt/sdcard && su -c 'sh install-tpd.sh; rm install-tpd.sh files-tpd.tgz'"
-	adb shell "su -c 'mount -o remount,ro /system'"
+	adb shell -n "su -c 'mount -o remount,rw /system'"
+	adb shell -n "cd /mnt/sdcard && su -c 'sh install-tpd.sh /system; rm install-tpd.sh files-tpd.tgz'"
+	adb shell -n "su -c 'mount -o remount,ro /system'"
+	adb shell -n "stop onyx_tpd && start onyx_tpd"
 
 install-config: install-config.sh files-config.tgz
 	adb push install-config.sh files-config.tgz /mnt/sdcard/
-	adb shell "cd /mnt/sdcard && su -c 'sh install-config.sh; rm install-config.sh files-config.tgz'"
-	adb shell "su -c 'mount -o remount,ro /system'"
+	adb shell -n "su -c 'mount -o remount,rw /system'"
+	adb shell -n "cd /mnt/sdcard && su -c 'sh install-config.sh /system; rm install-config.sh files-config.tgz'"
+	adb shell -n "su -c 'mount -o remount,ro /system'"
+	adb shell -n "stop sleepd && start sleepd"
 
-system.img:
-	unzip -j ../M96_KK_2017-05-02_19-37_dev_fbc2cc2_user.zip "M96_2017-05-02_19-37_dev_fbc2cc2_user/Profiles/MX6SL Linux Update/OS Firmware/files/android/system.img"
+put-adb: install-supersu install-tpd install-config
 
-bootanimation-1080: system.img
-	sudo debugfs -R "dump_inode /media/bootanimation.zip bootanimation.zip" system.img
-	mkdir bootanimation-1080
-	(cd bootanimation-1080; unzip ../bootanimation.zip)
-	rm -f bootanimation.zip
-
-bootanimation-825: bootanimation-1080
-	mkdir -p bootanimation-825/part0
-	sed -e "s/1080 1440/825 1200/" < bootanimation-1080/desc.txt > bootanimation-825/desc.txt
-	(cd bootanimation-1080; for f in part0/*.png; do pngtopnm "$$f" | pnmscale -xsize=825 -ysize=1200 | pnmdepth 15 | pnmtopng > "../bootanimation-825/$$f"; done)
-
-files-config/media/bootanimation.zip: bootanimation-screens
-	mkdir -p files-config/media
-	rm -f files-config/media/bootanimation.zip
-	(cd bootanimation-screens; zip -r --compression-method store ../files-config/media/bootanimation.zip desc.txt part0)
-
-system-orig: system.img
-	mkdir system-orig
-	sudo debugfs -R "rdump / system-orig" system.img
-
-system-current.tgz:
-	./get-system
-
-system.list: system.tgz
-	tar tzvf system.tgz --numeric-owner > system.list
-
-system-current.list: system-current.tgz
-	tar tzvf system-current.tgz --numeric-owner > system-current.list
-	# adb shell "busybox find /system -type f | while read f; do echo \$(busybox md5sum \$f) \$f; done"
-
-compare: system.list system-current.list
-	diff system.list system-current.list || true
-
-changes.list:
-	(cd changes; find . -type f | sed -e "s/^\./ ./"; find . -type d | sed -e 1d | while read d; do echo " $$d/\$$"; done ) > changes.list
-
-system.tgz: system.img
-	mkdir mp
-	sudo mount -o ro system.img mp/
-	sudo tar czvf - -C mp . > system.tgz
-	sudo umount mp
-	rmdir mp
+system-patched.img: system.img install-config.sh files-config.tgz install-tpd.sh files-tpd.tgz install-supersu.sh files-supersu.tgz
+	test -d target || mkdir target
+	cp system.img system-patched.img
+	sudo mount system-patched.img target
+	sudo sh install-config.sh target
+	sudo sh install-tpd.sh target
+	sudo sh install-supersu.sh target
+	sudo umount target
+	e2fsck -f system-patched.img
+	resize2fs -M system-patched.img
 
 clean:
-	rm -rf system.img system-current.img system-orig system-current
+	rm -rf system.img system-current.img system-current system-patched.img
+	sudo rm -rf system-orig
 	rm -rf files-config.tgz files-supersu.tgz files-tpd.tgz
 	rm -rf bootanimation-825 bootanimation-1080

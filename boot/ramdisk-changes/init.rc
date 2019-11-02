@@ -335,7 +335,7 @@ on boot
     write /proc/sys/vm/dirty_background_ratio 2
     write /proc/sys/vm/dirty_ratio 5
     # This is the most important change to prevent hangs! (default is 2884):
-    write /proc/sys/vm/min_free_kbytes 32768
+    write /proc/sys/vm/min_free_kbytes 65536
 
     # Tweak the mmc device read ahead buffer size
     write /sys/block/mmcblk0/queue/read_ahead_kb 1024

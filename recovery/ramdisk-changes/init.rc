@@ -13,7 +13,6 @@ on init
     symlink /etc /system/etc
     symlink /bin /system/bin
     symlink /bin/busybox /sbin/sh
-    symlink /proc/mounts /etc/mtab
 
     mkdir /storage
     mkdir /storage/sdcard
@@ -23,6 +22,7 @@ on init
     mkdir /cache
     mount /tmp /tmp tmpfs
     mkdir /vendor
+    mount ext4 /dev/block/mmcblk0p9 /vendor ro nosuid nodev
 
     chown root shell /tmp
     chmod 0775 /tmp
@@ -44,6 +44,8 @@ on boot
     hostname localhost
     domainname localdomain
 
+    class_start default
+
     # Tweak background writeout
     write /proc/sys/vm/dirty_expire_centisecs 50
     write /proc/sys/vm/dirty_writeback_centisecs 100
@@ -51,7 +53,7 @@ on boot
     write /proc/sys/vm/dirty_background_ratio 2
     write /proc/sys/vm/dirty_ratio 5
     # This is the most important change to prevent hangs! (default is 2884):
-    write /proc/sys/vm/min_free_kbytes 32768
+    write /proc/sys/vm/min_free_kbytes 65536
 
     # Tweak the mmc device read ahead buffer size
     write /sys/block/mmcblk0/queue/read_ahead_kb 1024
@@ -60,11 +62,6 @@ on boot
     # Define I/O schedulers to use for mmc
     write /sys/block/mmcblk0/queue/scheduler "deadline"
     write /sys/block/mmcblk1/queue/scheduler "noop"
-
-    # Effectively disable downscaling:
-    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 996000
-
-    class_start default
 
 on property:sys.powerctl=*
    powerctl ${sys.powerctl}
