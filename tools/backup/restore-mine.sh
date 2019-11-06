@@ -19,8 +19,10 @@ do
         ;;
     esac
 done <<"EOF"
-data/sdcard.cpio.gz  /dev/block/mmcblk0p4
-data/data.cpio.gz    /dev/block/mmcblk0p7
-#data/sdcard.img.gz  /dev/block/mmcblk0p4
-#data/data.img.gz    /dev/block/mmcblk0p7
+#data/boot.img.gz     /dev/block/mmcblk0p1    
+#data/system.img.gz   /dev/block/mmcblk0p5
+#data/sdcard.cpio.gz  /dev/block/mmcblk0p4
+#data/data.cpio.gz    /dev/block/mmcblk0p7
+data/sdcard.img.gz  /dev/block/mmcblk0p4
+data/data.img.gz    /dev/block/mmcblk0p7
 EOF

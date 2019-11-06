@@ -27,6 +27,7 @@ then
     adb shell -n "umount $partition"
 fi
 
+echo "Restoring partition $partition from $filename ..."
 if adb shell -n "blkid" | grep -q -E "$partition:.*TYPE=\"ext4\""
 then
     adb exec-in "gzip -c -d | dd of=$partition bs=1M" < $filename
