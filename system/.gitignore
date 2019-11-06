@@ -1,11 +1,16 @@
 files-config.tgz
+files-mtp.tgz
 files-supersu.tgz
 files-tpd.tgz
-files-misc
 system.img
+system-patched.img
+system-patched-mtp.img
 system.list
 system.tgz
 system-current.list
 system-current.tgz
 bootanimation-1080
 bootanimation-825
+files-config/media/bootanimation.zip
+bootanimation-elephants/*
+bootanimation-swirl/*

@@ -14,9 +14,22 @@ files-config/media/bootanimation.zip: bootanimation-screens
 	rm -f files-config/media/bootanimation.zip
 	(cd bootanimation-screens; zip -r --compression-method store ../files-config/media/bootanimation.zip desc.txt part0)
 
+files-config-mtp/media/bootanimation.zip: files-config/media/bootanimation.zip
+	cp files-config/media/bootanimation.zip files-config-mtp/media/bootanimation.zip
+
+system.img:
+	unzip -j ../M96_KK_2017-05-02_19-37_dev_fbc2cc2_user.zip "M96_2017-05-02_19-37_dev_fbc2cc2_user/Profiles/MX6SL Linux Update/OS Firmware/files/android/system.img"
+
 system-orig: system.img
 	mkdir system-orig
 	sudo debugfs -R "rdump / system-orig" system.img
+
+system.tgz: system.img
+	mkdir mp
+	sudo mount -o ro system.img mp/
+	sudo tar czvf - -C mp . > system.tgz
+	sudo umount mp
+	rmdir mp
 
 system-current.tgz:
 	./get-system
@@ -33,10 +46,3 @@ compare: system.list system-current.list
 
 changes.list:
 	(cd changes; find . -type f | sed -e "s/^\./ ./"; find . -type d | sed -e 1d | while read d; do echo " $$d/\$$"; done ) > changes.list
-
-system.tgz: system.img
-	mkdir mp
-	sudo mount -o ro system.img mp/
-	sudo tar czvf - -C mp . > system.tgz
-	sudo umount mp
-	rmdir mp
