@@ -6,14 +6,14 @@ adb shell -n "blkid" > data/blkid
 
 while read partition filename
 do
-    if [[ -e $filename ]]
+    if [[ "${partition:0:1}" = "#" ]]
+    then
+    	continue
+    elif [[ -e $filename ]]
     then
         echo Skipping $partition, $filename exists.
     else
         case "$filename" in
-        \#*)
-            continue
-            ;;
         *.img.gz)
             bash ./backup-partition.sh $partition $filename
             ;;
