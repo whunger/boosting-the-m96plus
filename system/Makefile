@@ -43,6 +43,7 @@ system-patched.img: system.img install-config.sh files-config.tgz install-tpd.sh
 	sudo sh install-config.sh target
 	sudo sh install-tpd.sh target
 	sudo sh install-supersu.sh target
+	sudo rm target/etc/security/otacerts.zip
 	sudo umount target
 	rmdir target
 	e2fsck -f system-patched.img
