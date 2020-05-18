@@ -1,4 +1,4 @@
-all: install-wf
+all: install-wf install-pointer-calibration
 
 # V220_C008_97_WJDF21_OC4_BTC.fw
 # V220_C009_97_WJ0902_ED097OC4_BTC.fw
@@ -32,6 +32,9 @@ wf.zip:
 
 epdc.fw:
 	unzip -j ../M96_KK_2017-05-02_19-37_dev_fbc2cc2_user.zip "M96_2017-05-02_19-37_dev_fbc2cc2_user/Profiles/MX6SL Linux Update/OS Firmware/files/waveform/epdc.wf"
+
+install-pointer-calibration:
+	adb push pointercal /vendor/
 
 clean:
 	rm -rf wf.zip *.fw
