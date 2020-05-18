@@ -7,13 +7,10 @@ install-vendor: installer
 	adb push $(EPDC).fw /mnt/vendor/firmware/imx/epdc.fw  # Sending waveform
 	rm $(EPDC).fw
 	adb shell -n "chmod 777 /mnt/vendor/firmware/imx/epdc.fw"
+	#adb shell -n "echo '0 1000 0 1000 0 0 1000 6144 8192' > /mnt/vendor/pointercal"
+	# Mine:
+	adb shell -n "echo '-3 1005 19000 1005 7 16000 1000 6144 8192' > /mnt/vendor/pointercal"
 	adb shell -n "umount /mnt/vendor"  # Unmounting vendor partition
-
-install-system:
-	make -C ../system system-patched.img
-	adb push ../system/system-patched.img $(DEV_SYSTEM)  # Sending and writing system.img
-	adb shell -n "e2fsck -f -y $(DEV_SYSTEM)"
-	adb shell -n "resize2fs $(DEV_SYSTEM)"
 
 install-recovery:
 	make -C ../recovery recovery-twrp.img

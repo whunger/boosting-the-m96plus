@@ -33,5 +33,12 @@ install-fat-init-sdcard: files/busybox
 	adb shell -n "sync"
 	adb shell -n "umount /mnt/sdcard"  # Unmounting data partition
 
-install-fat: boot-setup install-fat-base install-fat-init-data install-fat-init-sdcard install-vendor install-system install-recovery
+install-fat-system:
+	make -C ../system system-patched.img
+	adb push ../system/system-patched.img $(DEV_SYSTEM)  # Sending and writing system.img
+	adb shell -n "e2fsck -f -y $(DEV_SYSTEM)"
+	adb shell -n "resize2fs $(DEV_SYSTEM)"
+	adb shell -n "e2fsck -f -y $(DEV_SYSTEM)"
+
+install-fat: boot-setup install-fat-base install-fat-init-data install-fat-init-sdcard install-vendor install-fat-system install-recovery
 	adb reboot

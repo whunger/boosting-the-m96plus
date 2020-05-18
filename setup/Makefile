@@ -33,6 +33,7 @@ boot-setup:
 include install-common.mk
 include install-fat.mk
 include install-mtp.mk
+include install-eng.mk
 
 clean:
 	rm -rf installer
