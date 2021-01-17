@@ -9,13 +9,7 @@ recovery/ramdisk-twrp
 recovery/ramdisk-patched
 recovery/ramdisk-patched-twrp
 recovery/ramdisk-changes/busybox-armv7l
-system/bootanimation-elephants/*
-system/bootanimation-swirl/*
 setup/installer
 setup/*.log
 setup/files/busybox
-boot-eng
-boot-mtp
-system-eng
-system-mtp
 tools/backup/data*
