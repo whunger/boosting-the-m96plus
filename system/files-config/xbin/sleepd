@@ -11,6 +11,10 @@ then
     exit $rc
 fi
 
+snore() {
+    read -t $1 < /dev/ttymxc3
+}
+
 log() {
     echo >&2 "$1"
     [[ -e /mnt/sdcard/sleepd.log ]] && echo "$(date) $1" >> /mnt/sdcard/sleepd.log
@@ -87,10 +91,30 @@ get_mmc1_irq_count() {
     done < /proc/interrupts
 }
  
+get_digitizer_irq_count() {
+    # detect digitizer activity from /proc/interrupts:
+    # 59:    2245615       GIC  IMX-uart
+    local irq
+    local n
+    local remainder
+    while read irq n remainder
+    do
+        if [[ "$irq" = "59:" ]]
+        then
+            echo $n
+            break
+        fi
+    done < /proc/interrupts
+}
+ 
 is_on_ac() {
-    if dumpsys battery | grep "AC powered: true"
-    then return 0
-    else return 1
+    local state
+    read state < /sys/devices/platform/imx-i2c.1/i2c-1/1-0050/power_supply/usb/online
+    if [[ "$state" = "1" ]]
+    then
+        return 0
+    else
+        return 1
     fi
 }
 
@@ -99,12 +123,15 @@ set_screenlock() {
     then
         touch /mnt/shm/sleepd_screenlock
         dumpsys battery set ac 1
+        dumpsys battery set status 2
         log "locked screen to on state by simulating ac power"
+        # does this work also?
+        snore 1
+        dumpsys battery reset
     elif [[ "$1" == "unlocked" ]]
     then
         dumpsys battery reset
         rm -f /mnt/shm/sleepd_screenlock
-        dumpsys battery reset
         log "released screenlock"
     fi
 }
@@ -113,15 +140,17 @@ screenlock_timeout() {
     local screen_on_time
     local time
     local remaining
+    local timeout_seconds
     remaining=1
+    timeout_seconds=15
     while [[ $remaining -gt 0 ]]
     do
-        sleep $remaining
+        snore $remaining
         if [[ -e /mnt/shm/sleepd_screenlock ]]
         then
             screen_on_time=$(busybox date +%s -r /mnt/shm/sleepd_screenlock)
             time=${EPOCHREALTIME%%.*}
-            remaining=$((screen_on_time+60-time))
+            remaining=$((screen_on_time+timeout_seconds-time))
         else
             remaining=0
         fi
@@ -132,56 +161,81 @@ screenlock_timeout() {
 keep_screen_responsive() {
     local time
     local t0
+    local n_irq_before
+    local n_irq
     # make sure screen stays on while user interacts
     log "Started child process for screen wakelock"
+    n_irq_before="0$(get_digitizer_irq_count)"
     while true
     do
-        busybox head -c 1 < /dev/input/event1 > /dev/null
-        t0=${EPOCHREALTIME%%.*}
-        sleep 0.1
-        busybox timeout -t 2 busybox head -c 1 < /dev/input/event1 > /dev/null
-        time=${EPOCHREALTIME%%.*}
-        if [[ $((time-t0)) -gt 1 ]]
+        n_irq="0$(get_digitizer_irq_count)"
+        if [[ $n_irq -gt $n_irq_before ]]
         then
-            log "spurious input"
-        elif [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
-        then
-            sleep 300
-        elif [[ -e /mnt/shm/sleepd_screenlock ]]
-        then
-            # just renew timestamp
-            touch /mnt/shm/sleepd_screenlock
-            sleep 30
+            n_irq_before=$n_irq
+            if [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
+            then
+                snore 10
+            elif [[ -e /mnt/shm/sleepd_screenlock ]]
+            then
+                # just renew timestamp
+                touch /mnt/shm/sleepd_screenlock
+                snore 3
+            else
+                # lock and start timeout process
+                set_screenlock locked
+                screenlock_timeout &
+                snore 3
+            fi
         else
-            # lock and start timeout process
-            sleep 0.3
-            set_screenlock locked
-            screenlock_timeout &
-            sleep 30
+            snore 0.1
         fi
+        #get_digitizer_irq_count
+        #busybox head -c 1 < /dev/input/event1 > /dev/null
+        #t0=${EPOCHREALTIME%%.*}
+        #snore 0.1
+        #busybox timeout -t 2 busybox head -c 1 < /dev/input/event1 > /dev/null
+        #time=${EPOCHREALTIME%%.*}
+        #if [[ $((time-t0)) -gt 1 ]]
+        #then
+        #    log "spurious input"
+        #elif [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
+        #then
+        #    snore 10
+        #elif [[ -e /mnt/shm/sleepd_screenlock ]]
+        #then
+        #    # just renew timestamp
+        #    touch /mnt/shm/sleepd_screenlock
+        #    snore 3
+        #else
+        #    # lock and start timeout process
+        #    set_screenlock locked
+        #    screenlock_timeout &
+        #    snore 3
+        #fi
     done
 }
 
 io_watchdog() {
     local time
     local check_sdma_time
-    #local check_mmc_time
-    local check_io_time
+    local check_mmc_time
+    local check_blocked_time
     local n_sdma_before
     local n_sdma
-    #local n_mmc1_before
-    #local n_mmc1
+    local n_mmc1_before
+    local n_mmc1
     local sound_active
-    #local mmc1_active
+    local mmc1_active
+    local io_blocked
     log "Started child process for I/O dependent workarounds"
     n_sdma_before="0$(get_sdma_irq_count)"
-    #n_mmc1_before="0$(get_mmc1_irq_count)"
+    n_mmc1_before="0$(get_mmc1_irq_count)"
     time=${EPOCHREALTIME%%.*}
     check_sdma_time=$((time+1))
-    #check_mmc_time=$((time+300))
-    check_io_time=$((time+30))
+    check_mmc_time=$((time+2))
+    check_blocked_time=$((time+3))
     sound_active=1
-    #mmc1_active=1
+    mmc1_active=1
     while true
     do
         time=${EPOCHREALTIME%%.*}
@@ -200,28 +254,42 @@ io_watchdog() {
             fi
             check_sdma_time=$((time+1))
         fi
-        #if [[ $time -ge $check_mmc_time ]]
-        #then
-        #    n_mmc1="0$(get_mmc1_irq_count)"
-        #    if [[ $n_mmc1 -gt $n_mmc1_before ]]
-        #    then
-        #        n_mmc1_before=$n_mmc1
-        #        mmc1_active=1
-        #    else
-        #        mmc1_active=0
-        #    fi
-        #    check_mmc_time=$((time+300))
-        #fi
-        if [[ $time -ge $check_io_time ]]
+        if [[ $time -ge $check_mmc_time ]]
         then
-            check_io
-            check_io_time=$((time+30))
+            n_mmc1="0$(get_mmc1_irq_count)"
+            if [[ $n_mmc1 -gt $n_mmc1_before ]]
+            then
+                n_mmc1_before=$n_mmc1
+                mmc1_active=1
+                check_mmc_time=$((time+3))
+            else
+                mmc1_active=0
+                check_mmc_time=$((time+30))
+            fi
         fi
-        sleep 1
+        if [[ $time -ge $check_blocked_time ]]
+        then
+            if [[ "0$(get_n_blocked)" -gt 3 ]]
+            then
+                io_blocked=1
+                check_blocked_time=$((time+3))
+            else
+                io_blocked=0
+                check_blocked_time=$((time+30))
+            fi
+        fi
+        if [[ $((io_blocked + mmc_active)) -gt 0 ]]
+        then
+            set_io_wakelock locked
+            check_governor auto
+        else
+            set_io_wakelock unlocked
+        fi
+        snore 1
     done
 }
 
-set_wakelock() {
+set_io_wakelock() {
     # make sure device stays awake while processes wait for i/o
     if [[ "$1" == "locked" ]]
     then
@@ -250,7 +318,7 @@ check_governor() {
     then
         if [[ "0$(get_n_blocked)" -gt 0 ]]
         then target="performance"
-        else target="ondemand"
+        else target="interactive"
         fi
     else
         target="$1"
@@ -263,29 +331,6 @@ check_governor() {
         return 0
     fi
     return 1
-}
-
-check_io() {
-    # make sure device stays awake while processes wait for i/o
-    if [[ "0$(get_n_blocked)" -gt 3 ]]
-    then
-        set_wakelock locked
-        check_governor performance
-        sync
-        #echo 1 > /proc/sys/vm/drop_caches
-        #dd if=/dev/zero of=/mnt/shm/x bs=1024 count=20000
-        #rm /mnt/shm/x
-    else
-        set_wakelock unlocked
-    fi
-}
-
-check_discard() {
-    if [[ -d "$1" ]] && mount | grep -q "$1"
-    then
-        log "mount -o remount,discard,noatime,norelatime,nosuid,nodev,noexec $1"
-        mount -o remount,discard,noatime,norelatime,nosuid,nodev,noexec "$1"
-    fi
 }
 
 init_mixer() {
@@ -301,8 +346,18 @@ init_screen() {
     settings put global animator_duration_scale 0.0
     settings put global transition_animation_scale 0.0
     setprop persist.sys.ui.hw true
-    busybox renice -10 $(busybox pgrep /system/bin/surfaceflinger)
+    #busybox renice -10 $(busybox pgrep /system/bin/surfaceflinger)
     busybox renice -19 $(busybox pgrep /system/bin/onyx_tpd)
+    setprop sys.interactive active
+    echo interactive > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+    echo 396000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
+    echo 996000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+    echo 5000 > /sys/devices/system/cpu/cpufreq/interactive/timer_rate
+    echo 1 > /sys/devices/system/cpu/cpufreq/interactive/input_boost
+    echo 60000000 > /sys/devices/system/cpu/cpufreq/interactive/min_sample_time
+    echo 80 > /sys/devices/system/cpu/cpufreq/interactive/go_hispeed_load
+    #echo 1 > /sys/devices/system/cpu/cpufreq/interactive/io_is_busy
+    echo 996000 > /sys/devices/system/cpu/cpufreq/interactive/hispeed_freq
 }
 
 init_vm() {
@@ -330,24 +385,24 @@ init_vm() {
     #echo 1 > /proc/sys/vm/highmem_is_dirtyable
     # Default is cfq:
     echo "deadline" > /sys/block/mmcblk0/queue/scheduler
+    echo 1 > /sys/block/mmcblk0/queue/iosched/fifo_batch
+    echo 10 > /sys/block/mmcblk0/queue/iosched/read_expire
+    echo 150  > /sys/block/mmcblk0/queue/iosched/write_expire
     # read ahead buffer size
     echo 1024 > /sys/block/mmcblk0/queue/read_ahead_kb
     if mount | grep -q /mnt/extsd
     then
         log "setting mmcblk1 queue parameters"
-        echo "noop" > /sys/block/mmcblk1/queue/scheduler
+        echo "deadline" > /sys/block/mmcblk1/queue/scheduler
+        echo 1 > /sys/block/mmcblk1/queue/iosched/fifo_batch
+        echo 10 > /sys/block/mmcblk1/queue/iosched/read_expire
+        echo 50  > /sys/block/mmcblk1/queue/iosched/write_expire
         echo 1024 > /sys/block/mmcblk1/queue/read_ahead_kb
-        busybox renice -15 $(busybox pgrep "mmcqd/1")
     fi
     # Memory or CPU?
     #echo 1 > /sys/kernel/mm/ksm/run
     #echo 1000 > /sys/kernel/mm/ksm/sleep_millisecs
     #echo 128 > /sys/kernel/mm/ksm/pages_to_scan
-}
-
-init_swap() {
-    [ -e /cache/swap ] && grep -q /cache/swap /proc/swaps || swapon /cache/swap
-    [ -e /data/swap ] && grep -q /data/swap /proc/swaps || swapon /data/swap
 }
 
 change_mode() {
@@ -389,14 +444,14 @@ do_restart_power_service() {
 
 do_enter_suspend() {
     set_screenlock unlocked
-    set_wakelock unlocked
+    set_io_wakelock unlocked
     if [[ "$mode" == "standby" ]]
     then
-        ( powerkey ; sleep 1 ; powerkey ) &
+        ( powerkey ; snore 1 ; powerkey ) &
         block_time=$((time+60))
-        log "enter_suspend ($mode): keep_screen_on-powerkey-sleep-powerkey, releasing wakelock, blocking for 60 s"
+        log "enter_suspend ($mode): powerkey-sleep-powerkey, releasing locks, blocking for 60 s"
     else
-        log "enter suspend ($mode): releasing wakelock"
+        log "enter suspend ($mode): releasing locks"
     fi
 }
 
@@ -409,15 +464,13 @@ do_wakeup() {
     log "wakeup: init_mixer, blocking for 15 s"
     init_mixer
     set_screenlock unlocked
-    #check_governor performance
+    check_governor performance
     refresh_screen
     block_time=$((time+15))
 }
 
 do_activity() {
-    #touch /mnt/shm/sleepd_screenlock
-    #check_governor auto
-    #log "activity: governor=performance"
+    check_governor auto
 }
 
 do_throttle() {
@@ -558,11 +611,6 @@ log "Set defaults for vm management"
 #settings put system screen_off_timeout 300000
 log "System's screen off timeout is set to $((0$(settings get system screen_off_timeout)/1000)) s"
 
-#check_discard /storage/sdcard
-#check_discard /mnt/extsd
-
-#init_swap
-
 # From Kernel 3.4 on ... setprop sys.sysctl.extra_free_kbytes 16384
 
 init_screen
@@ -579,19 +627,10 @@ io_watchdog_pid=$!
 log "Waiting for system to settle ..."
 while [[ "0$(get_n_blocked)" -gt 0 ]]
 do
-    sleep 5
+    snore 5
 done
 
 logcat -b system -b main -b events | sleepd
 
 # * sys.onyx.pwrmode can be one of on/standby/mem
 # * to test with adb running use "dumpsys battery set ac 0"
-
-#write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor interactive
-# Set timer 5ms, min sample 10s, hispeed at cpufreq MAX freq in freq_table at load 25%
-#write /sys/devices/system/cpu/cpufreq/interactive/timer_rate 5000
-#write /sys/devices/system/cpu/cpufreq/interactive/input_boost 1
-#write /sys/devices/system/cpu/cpufreq/interactive/min_sample_time 10000000
-#write /sys/devices/system/cpu/cpufreq/interactive/go_hispeed_load 10
-#write /sys/devices/system/cpu/cpufreq/interactive/io_is_busy 1
-#write /sys/devices/system/cpu/cpufreq/interactive/hispeed_freq 792000
