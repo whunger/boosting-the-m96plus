@@ -50,7 +50,7 @@ dalvik.vm.dexopt-flags=m=y
 net.bt.name=M96Plus
 dalvik.vm.stack-trace-file=/data/anr/traces.txt
 persist.sys.ui.hw=true
-# sys.interactive=active
+sys.interactive=active
 sys.keep_app_1=com.mobint.hololauncher.hd
 sys.keep_app_2=com.fiistudio.fiinote
 sys.keep_app_3=net.pierrox.lightning_launcher_extreme
