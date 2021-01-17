@@ -17,22 +17,22 @@ files-mtp.tgz: files-mtp $(shell find files-mtp/ -type f)
 install-supersu: install-supersu.sh files-supersu.tgz
 	adb push install-supersu.sh files-supersu.tgz /mnt/sdcard/
 	adb shell -n "su -c 'mount -o remount,rw /system'"
-	adb shell "cd /mnt/sdcard && su -c 'sh install-supersu.sh /system; rm install-supersu.sh files-supersu.tgz'"
-	adb shell "su -c 'mount -o remount,ro /system'"
+	adb shell -n "cd /mnt/sdcard && su -c 'sh install-supersu.sh /system; rm install-supersu.sh files-supersu.tgz'"
+	adb shell -n "su -c 'mount -o remount,ro /system'"
 
 install-tpd: install-tpd.sh files-tpd.tgz
 	adb push install-tpd.sh files-tpd.tgz /mnt/sdcard/
 	adb shell -n "su -c 'mount -o remount,rw /system'"
 	adb shell -n "cd /mnt/sdcard && su -c 'sh install-tpd.sh /system; rm install-tpd.sh files-tpd.tgz'"
 	adb shell -n "su -c 'mount -o remount,ro /system'"
-	adb shell -n "stop onyx_tpd && start onyx_tpd"
+	adb shell -n "su -c 'stop onyx_tpd && start onyx_tpd'"
 
 install-config: install-config.sh files-config.tgz
 	adb push install-config.sh files-config.tgz /mnt/sdcard/
 	adb shell -n "su -c 'mount -o remount,rw /system'"
 	adb shell -n "cd /mnt/sdcard && su -c 'sh install-config.sh /system; rm install-config.sh files-config.tgz'"
 	adb shell -n "su -c 'mount -o remount,ro /system'"
-	adb shell -n "stop sleepd && start sleepd"
+	adb shell -n "su -c 'stop sleepd && start sleepd'"
 
 put-adb: install-supersu install-tpd install-config
 

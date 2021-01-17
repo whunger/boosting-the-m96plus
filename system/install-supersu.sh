@@ -1,6 +1,6 @@
 #!/system/bin/sh
 
-tar xzvf files-supersu.tgz -C $1
+busybox tar xzvf files-supersu.tgz -C $1
 
 chmod 755 $1/bin/
 chmod 755 $1/bin/busybox

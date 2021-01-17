@@ -1,6 +1,6 @@
 #!/system/bin/sh
 
-tar xzvf files-tpd.tgz -C $1
+busybox tar xzvf files-tpd.tgz -C $1
 
 chmod 755 $1/etc
 chmod 644 $1/etc/ts.conf
