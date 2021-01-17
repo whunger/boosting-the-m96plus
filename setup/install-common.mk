@@ -9,7 +9,7 @@ install-vendor: installer
 	adb shell -n "chmod 777 /mnt/vendor/firmware/imx/epdc.fw"
 	#adb shell -n "echo '0 1000 0 1000 0 0 1000 6144 8192' > /mnt/vendor/pointercal"
 	# Mine:
-	adb shell -n "echo '-3 1005 19000 1005 7 16000 1000 6144 8192' > /mnt/vendor/pointercal"
+	adb shell -n "echo '-6 1000 50000 1003 5 14000 1000 6144 8192' > /mnt/vendor/pointercal"
 	adb shell -n "umount /mnt/vendor"  # Unmounting vendor partition
 
 install-recovery:
