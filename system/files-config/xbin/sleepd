@@ -461,12 +461,12 @@ do_sleep() {
 }
 
 do_wakeup() {
-    log "wakeup: init_mixer, blocking for 15 s"
+    log "wakeup: init_mixer, blocking for 5 s"
+    check_governor auto
     init_mixer
-    set_screenlock unlocked
-    check_governor performance
     refresh_screen
-    block_time=$((time+15))
+    #set_screenlock unlocked
+    block_time=$((time+5))
 }
 
 do_activity() {
@@ -506,7 +506,6 @@ sleepd() {
     time=${EPOCHREALTIME%%.*}
     ping_time=$((time+60))
     ping_count=0
-    exit_time=$((time+3600*24))
     block_time=$((time+1))
     while read line
     do
@@ -585,14 +584,11 @@ sleepd() {
             ping_time=$((time+15))
             if [[ $ping_count = 0 ]]
             then
-                exit_time=$((time+1))
+                log "unable to receive pings, exiting to induce restart"
+                kill $keep_screen_responsive_pid
+                kill $io_watchdog_pid
+                exit 33
             fi
-        elif [[ $time -ge $exit_time ]]
-        then
-            log "unable to receive pings, exiting to induce restart"
-            kill $keep_screen_responsive_pid
-            kill $io_watchdog_pid
-            exit 33
         fi
     done
 }
