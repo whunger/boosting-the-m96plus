@@ -158,9 +158,7 @@ screenlock_timeout() {
     set_screenlock unlocked
 }
 
-keep_screen_responsive() {
-    local time
-    local t0
+keep_screen_responsive_() {
     local n_irq_before
     local n_irq
     # make sure screen stays on while user interacts
@@ -212,6 +210,31 @@ keep_screen_responsive() {
         #    screenlock_timeout &
         #    snore 3
         #fi
+    done
+}
+
+keep_screen_responsive() {
+    local time
+    local t0
+    # make sure screen stays on while user interacts
+    log "Started child process for screen wakelock"
+    t0=${EPOCHREALTIME%%.*}
+    getevent /dev/input/event1 | while read data
+    do
+        if [[ -e /mnt/shm/sleepd_screenlock ]]
+        then
+            # just renew timestamp
+            time=${EPOCHREALTIME%%.*}
+            if [[ $((time-t0)) -gt 1 ]]
+            then
+                touch /mnt/shm/sleepd_screenlock
+                t0=$time
+            fi
+        else
+            # lock and start timeout process
+            set_screenlock locked
+            screenlock_timeout &
+        fi
     done
 }
 
@@ -316,7 +339,7 @@ check_governor() {
     local target
     if [[ "$1" == "auto" ]]
     then
-        if [[ "0$(get_n_blocked)" -gt 0 ]]
+        if [[ "0$(get_n_blocked)" -gt 2 ]]
         then target="performance"
         else target="interactive"
         fi
@@ -539,7 +562,7 @@ sleepd() {
             do_sleep
             ;;
         *SYSTEM\ POWER\ STATE:\ \[on\]*)
-            #log "$line"
+            log "$line"
             if [[ "$mode" = "mem" ]] && ! is_blocked
             then do_wakeup
             elif [[ "$mode" = "standby" ]] && ! is_blocked
@@ -547,7 +570,7 @@ sleepd() {
             fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
-            #log "$line"
+            log "$line"
             if [[ "$mode" = "mem" ]] && ! is_blocked
             then do_wakeup
             elif [[ "$mode" = "on" ]] && ! is_blocked
