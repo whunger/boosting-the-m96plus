@@ -570,9 +570,11 @@ sleepd() {
             fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
-            log "$line"
+            # No logging here to not cause wakeup!
             if [[ "$mode" = "mem" ]] && ! is_blocked
-            then do_wakeup
+            then
+                log "$line"
+                do_wakeup
             elif [[ "$mode" = "on" ]] && ! is_blocked
             then do_throttle
             fi
