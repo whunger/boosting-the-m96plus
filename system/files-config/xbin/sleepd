@@ -43,7 +43,7 @@ get_n_blocked() {
     local rest
     while read label v0 rest
     do
-        if [[ "$label" == "procs_blocked" ]]
+        if [[ "$label" = "procs_blocked" ]]
         then
             echo $v0
             break
@@ -119,16 +119,13 @@ is_on_ac() {
 }
 
 set_screenlock() {
-    if [[ "$1" == "locked" ]]
+    if [[ "$1" = "locked" ]]
     then
         touch /mnt/shm/sleepd_screenlock
         dumpsys battery set ac 1
-        dumpsys battery set status 2
+        dumpsys battery set status 2  # show power icon
         log "locked screen to on state by simulating ac power"
-        # does this work also?
-        snore 1
-        dumpsys battery reset
-    elif [[ "$1" == "unlocked" ]]
+    elif [[ "$1" = "unlocked" ]]
     then
         dumpsys battery reset
         rm -f /mnt/shm/sleepd_screenlock
@@ -158,83 +155,35 @@ screenlock_timeout() {
     set_screenlock unlocked
 }
 
-keep_screen_responsive_() {
-    local n_irq_before
-    local n_irq
-    # make sure screen stays on while user interacts
-    log "Started child process for screen wakelock"
-    n_irq_before="0$(get_digitizer_irq_count)"
-    while true
-    do
-        n_irq="0$(get_digitizer_irq_count)"
-        if [[ $n_irq -gt $n_irq_before ]]
+screenlock_time=${EPOCHREALTIME%%.*}
+
+start_screenlock() {
+    local time
+    if [[ -e /mnt/shm/sleepd_screenlock ]]
+    then
+        # just renew timestamp
+        time=${EPOCHREALTIME%%.*}
+        # but at most once per second
+        if [[ $((time-screenlock_time)) -gt 1 ]]
         then
-            n_irq_before=$n_irq
-            if [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
-            then
-                snore 10
-            elif [[ -e /mnt/shm/sleepd_screenlock ]]
-            then
-                # just renew timestamp
-                touch /mnt/shm/sleepd_screenlock
-                snore 3
-            else
-                # lock and start timeout process
-                set_screenlock locked
-                screenlock_timeout &
-                snore 3
-            fi
-        else
-            snore 0.1
+            touch /mnt/shm/sleepd_screenlock
+            screenlock_time=$time
+            log "updated screenlock time to $screenlock_time"
         fi
-        #get_digitizer_irq_count
-        #busybox head -c 1 < /dev/input/event1 > /dev/null
-        #t0=${EPOCHREALTIME%%.*}
-        #snore 0.1
-        #busybox timeout -t 2 busybox head -c 1 < /dev/input/event1 > /dev/null
-        #time=${EPOCHREALTIME%%.*}
-        #if [[ $((time-t0)) -gt 1 ]]
-        #then
-        #    log "spurious input"
-        #elif [[ "$(getprop sys.onyx.pwrmode)" == "mem" ]]
-        #then
-        #    snore 10
-        #elif [[ -e /mnt/shm/sleepd_screenlock ]]
-        #then
-        #    # just renew timestamp
-        #    touch /mnt/shm/sleepd_screenlock
-        #    snore 3
-        #else
-        #    # lock and start timeout process
-        #    set_screenlock locked
-        #    screenlock_timeout &
-        #    snore 3
-        #fi
-    done
+    else
+        # lock and start timeout process
+        set_screenlock locked
+        screenlock_timeout &
+        screenlock_time=${EPOCHREALTIME%%.*}
+    fi
 }
 
 keep_screen_responsive() {
-    local time
-    local t0
     # make sure screen stays on while user interacts
     log "Started child process for screen wakelock"
-    t0=${EPOCHREALTIME%%.*}
     getevent /dev/input/event1 | while read data
     do
-        if [[ -e /mnt/shm/sleepd_screenlock ]]
-        then
-            # just renew timestamp
-            time=${EPOCHREALTIME%%.*}
-            if [[ $((time-t0)) -gt 1 ]]
-            then
-                touch /mnt/shm/sleepd_screenlock
-                t0=$time
-            fi
-        else
-            # lock and start timeout process
-            set_screenlock locked
-            screenlock_timeout &
-        fi
+        start_screenlock
     done
 }
 
@@ -314,7 +263,7 @@ io_watchdog() {
 
 set_io_wakelock() {
     # make sure device stays awake while processes wait for i/o
-    if [[ "$1" == "locked" ]]
+    if [[ "$1" = "locked" ]]
     then
         echo sleepd_io > /sys/power/wake_lock
         if [[ 0$wakelock -eq 0 ]]
@@ -337,7 +286,7 @@ set_io_wakelock() {
 check_governor() {
     local governor
     local target
-    if [[ "$1" == "auto" ]]
+    if [[ "$1" = "auto" ]]
     then
         if [[ "0$(get_n_blocked)" -gt 2 ]]
         then target="performance"
@@ -456,7 +405,7 @@ is_blocked() {
 }
 
 do_restart_power_service() {
-    log "restart_power_service"
+    log "restart_power_service ($mode)"
     stop power
     start power
     log "restart_power_service: exiting to induce restart"
@@ -466,51 +415,38 @@ do_restart_power_service() {
 }
 
 do_enter_suspend() {
+    log "enter suspend ($mode): releasing locks"
     set_screenlock unlocked
     set_io_wakelock unlocked
-    if [[ "$mode" == "standby" ]]
-    then
-        ( powerkey ; snore 1 ; powerkey ) &
-        block_time=$((time+60))
-        log "enter_suspend ($mode): powerkey-sleep-powerkey, releasing locks, blocking for 60 s"
-    else
-        log "enter suspend ($mode): releasing locks"
-    fi
 }
 
 do_sleep() {
-    log "sleep: sleeping now ..."
-    set_screenlock unlocked
+    log "sleep ($mode): sleeping now ..."
 }
 
 do_wakeup() {
-    log "wakeup: init_mixer, blocking for 5 s"
-    check_governor auto
+    log "wakeup ($mode): init_mixer, check_governor, refresh_screen, blocking for 5 s"
     init_mixer
+    check_governor auto
     refresh_screen
-    #set_screenlock unlocked
     block_time=$((time+5))
 }
 
 do_activity() {
+    log "activity ($mode): check_governor"
+    #start_screenlock
     check_governor auto
 }
 
 do_throttle() {
-    #log "throttle: governor=auto"
-    #check_governor auto
-    #log "throttle: governor=performance regardless"
-    #check_governor performance
-}
-
-do_refresh_screen() {
-    refresh_screen
-    log "refresh_screen, blocking for 2 s"
-    block_time=$((time+2))
+    log "throttle ($mode): check_governor"
+    #start_screenlock  # hilft das gegen refresh?
+    check_governor auto
 }
 
 do_screenshot() {
     screencap -p /mnt/sdcard/Pictures/Screenshots/"$(date +"%Y-%m-%d_%H_%M_%S").png"
+    refresh_screen
 }
 
 sleepd() {
@@ -522,8 +458,9 @@ sleepd() {
         [[ "$line" != "${line%$marker*}" ]] && break
     done
 
-    refresh_screen
+    set_screenlock unlocked
     log "Screen refresh to indicate sleepd start"
+    refresh_screen
 
     # start reacting to messages
     time=${EPOCHREALTIME%%.*}
@@ -546,7 +483,13 @@ sleepd() {
             ;;
         *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
             log "$line"
-            is_blocked || do_enter_suspend
+            #is_blocked || do_enter_suspend
+            if ! is_blocked
+            then
+            log "idle to mem: powerkey-powerkey, blocking for 240 s"
+            powerkey ; powerkey
+            block_time=$((time+240))
+            fi
             ;;
         *Going\ to\ sleep\ by\ user\ request...*)
             # First indicator of Onyx software starting to suspend the device
@@ -565,16 +508,18 @@ sleepd() {
             log "$line"
             if [[ "$mode" = "mem" ]] && ! is_blocked
             then do_wakeup
+            elif [[ "$mode" = "mem" ]]
+            then
+                log "unblocking on mem to on transition"
+                block_time=0
             elif [[ "$mode" = "standby" ]] && ! is_blocked
             then do_activity
             fi
             ;;
         *SYSTEM\ POWER\ STATE:\ \[standby\]*)
-            # No logging here to not cause wakeup!
+            log "$line"
             if [[ "$mode" = "mem" ]] && ! is_blocked
-            then
-                log "$line"
-                do_wakeup
+            then do_wakeup
             elif [[ "$mode" = "on" ]] && ! is_blocked
             then do_throttle
             fi
@@ -637,7 +582,7 @@ log "System's screen off timeout is set to $((0$(settings get system screen_off_
 init_screen
 log "Set defaults for screen performance"
 
-set_screenlock unlocked
+set_screenlock locked
 
 keep_screen_responsive &
 keep_screen_responsive_pid=$!
