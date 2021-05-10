@@ -59,39 +59,11 @@ get_cs_time() {
     echo ${up/./}
 }
 
-get_sdma_irq_count() {
+get_irq_count() {
     # detect sound playback activity from /proc/interrupts:
     # 34:     380783       GIC  sdma
-    local irq
-    local n
-    local remainder
-    while read irq n remainder
-    do
-        if [[ "$irq" = "34:" ]]
-        then
-            echo $n
-            break
-        fi
-    done < /proc/interrupts
-}
-
-get_mmc1_irq_count() {
     # detect mmc1 activity from /proc/interrupts:
     # 54:      55724       GIC  mmc1
-    local irq
-    local n
-    local remainder
-    while read irq n remainder
-    do
-        if [[ "$irq" = "54:" ]]
-        then
-            echo $n
-            break
-        fi
-    done < /proc/interrupts
-}
- 
-get_digitizer_irq_count() {
     # detect digitizer activity from /proc/interrupts:
     # 59:    2245615       GIC  IMX-uart
     local irq
@@ -99,14 +71,14 @@ get_digitizer_irq_count() {
     local remainder
     while read irq n remainder
     do
-        if [[ "$irq" = "59:" ]]
+        if [[ "$irq" = "$1:" ]]
         then
             echo $n
             break
         fi
     done < /proc/interrupts
 }
- 
+
 is_on_ac() {
     local state
     read state < /sys/devices/platform/imx-i2c.1/i2c-1/1-0050/power_supply/usb/online
@@ -118,72 +90,161 @@ is_on_ac() {
     fi
 }
 
+is_online() {
+    if ip route | grep default
+    then
+        return 0
+    else
+        return 1
+    fi
+}
+
 set_screenlock() {
     if [[ "$1" = "locked" ]]
     then
-        touch /mnt/shm/sleepd_screenlock
-        dumpsys battery set ac 1
-        dumpsys battery set status 2  # show power icon
-        log "locked screen to on state by simulating ac power"
+        if [[ -e /mnt/shm/sleepd_screen_release ]]
+        then
+            # just renew timestamp
+            touch /mnt/shm/sleepd_screen_release
+            log "updated screen release timestamp to ${EPOCHREALTIME%%.*}"
+        else
+            # lock and start timeout process to release lock
+            dumpsys battery set ac 1
+            dumpsys battery set status 2  # show power icon
+            log "locked screen to on state by simulating ac power"
+            touch /mnt/shm/sleepd_screen_release
+            release_screen &
+        fi
     elif [[ "$1" = "unlocked" ]]
     then
         dumpsys battery reset
-        rm -f /mnt/shm/sleepd_screenlock
+        rm -f /mnt/shm/sleepd_screen_release
         log "released screenlock"
     fi
 }
 
-screenlock_timeout() {
-    local screen_on_time
+set_device_locker() {
+    if [[ "$1" = "enabled" ]]
+    then
+        if [[ -e /mnt/shm/sleepd_device_lock ]]
+        then
+            # just renew timestamp
+            touch /mnt/shm/sleepd_device_lock
+            log "updated device locking timestamp to ${EPOCHREALTIME%%.*}"
+        else
+            # start timeout process for device locking
+            touch /mnt/shm/sleepd_device_lock
+            lock_device &
+            log "started device locking timeout process"
+        fi
+    elif [[ "$1" = "disabled" ]]
+    then
+        rm -f /mnt/shm/sleepd_device_lock
+        log "disabled device locking timeout process"
+    fi
+}
+
+wait_for_trigger() {
+    local trigger_file
+    local timeout_seconds
+    trigger_file=$1
+    timeout_seconds=$2
+    local trigger_time
     local time
     local remaining
-    local timeout_seconds
     remaining=1
-    timeout_seconds=15
     while [[ $remaining -gt 0 ]]
     do
+        log "$remaining s remaining for $trigger_file"
         snore $remaining
-        if [[ -e /mnt/shm/sleepd_screenlock ]]
+        if [[ -e $trigger_file ]]
         then
-            screen_on_time=$(busybox date +%s -r /mnt/shm/sleepd_screenlock)
+            trigger_time=$(busybox date +%s -r $trigger_file)
             time=${EPOCHREALTIME%%.*}
-            remaining=$((screen_on_time+timeout_seconds-time))
+            remaining=$((trigger_time+timeout_seconds-time))
         else
             remaining=0
         fi
     done
-    set_screenlock unlocked
+    if [[ -e $trigger_file ]]
+    then
+        return 0
+    else
+        return 1
+    fi
 }
 
-screenlock_time=${EPOCHREALTIME%%.*}
-
-start_screenlock() {
-    local time
-    if [[ -e /mnt/shm/sleepd_screenlock ]]
+release_screen() {
+    if wait_for_trigger /mnt/shm/sleepd_screen_release 15
     then
-        # just renew timestamp
-        time=${EPOCHREALTIME%%.*}
-        # but at most once per second
-        if [[ $((time-screenlock_time)) -gt 1 ]]
-        then
-            touch /mnt/shm/sleepd_screenlock
-            screenlock_time=$time
-            log "updated screenlock time to $screenlock_time"
-        fi
-    else
-        # lock and start timeout process
-        set_screenlock locked
-        screenlock_timeout &
-        screenlock_time=${EPOCHREALTIME%%.*}
+        set_screenlock unlocked
     fi
+    log "release_screen finished"
+}
+
+lock_device() {
+    local screen_off_timeout
+    local pwrmode
+    screen_off_timeout=$((0$(settings get system screen_off_timeout)/1000))
+    if wait_for_trigger /mnt/shm/sleepd_device_lock $screen_off_timeout
+    then
+        pwrmode=$(getprop sys.onyx.pwrmode)
+        if [[ "$pwrmode" = "on" || "$pwrmode" = "standby" ]] && ! is_online
+        then
+            log "forcing screen lock after $screen_off_timeout s of inactivity"
+            set_screenlock locked
+            refresh_screen
+            powerkey
+        fi
+        set_device_locker disabled
+    fi
+    log "lock_device finished"
+}
+
+activity_detected() {
+    set_screenlock locked
+    set_device_locker enabled
+    check_governor auto
 }
 
 keep_screen_responsive() {
     # make sure screen stays on while user interacts
     log "Started child process for screen wakelock"
-    getevent /dev/input/event1 | while read data
+    while true
     do
-        start_screenlock
+        pwrmode=$(getprop sys.onyx.pwrmode)
+        if [[ "$pwrmode" = "on" || "$pwrmode" = "standby" ]]
+        then
+            getevent -c 1 < /dev/input/event1 > /dev/null
+            activity_detected
+        fi
+        snore 1
+    done
+}
+
+powerbutton_reaction() {
+    local data
+    local pwrmode
+    # make sure that lockscreen is entered nicely on user request
+    log "Started child process for powerbutton reaction"
+    while true
+    do
+        data=$(getevent -c 1 /dev/input/event0)
+        pwrmode=$(getprop sys.onyx.pwrmode)
+        if [[ "$pwrmode" = "on" || "$pwrmode" = "standby" ]]
+        then
+            if [[ "$data" = "0001 0074 00000001" ]]  # power button
+            then
+                set_screenlock locked
+                log "user request to lock screen detected"
+                refresh_screen
+            else
+                activity_detected
+            fi
+        elif [[ "$pwrmode" = "mem" && "$data" = "0001 0074 00000001" ]]
+        then
+            log "user request to wake up detected"
+        fi
     done
 }
 
@@ -200,8 +261,8 @@ io_watchdog() {
     local mmc1_active
     local io_blocked
     log "Started child process for I/O dependent workarounds"
-    n_sdma_before="0$(get_sdma_irq_count)"
-    n_mmc1_before="0$(get_mmc1_irq_count)"
+    n_sdma_before="0$(get_irq_count 34)"
+    n_mmc1_before="0$(get_irq_count 54)"
     time=${EPOCHREALTIME%%.*}
     check_sdma_time=$((time+1))
     check_mmc_time=$((time+2))
@@ -214,7 +275,7 @@ io_watchdog() {
         if [[ $time -ge $check_sdma_time ]]
         then
             # make sure speakers are muted when not in use
-            n_sdma="0$(get_sdma_irq_count)"
+            n_sdma="0$(get_irq_count 34)"
             if [[ $n_sdma -gt $n_sdma_before ]]
             then
                 # DMA activity = sound playing
@@ -228,7 +289,7 @@ io_watchdog() {
         fi
         if [[ $time -ge $check_mmc_time ]]
         then
-            n_mmc1="0$(get_mmc1_irq_count)"
+            n_mmc1="0$(get_irq_count 54)"
             if [[ $n_mmc1 -gt $n_mmc1_before ]]
             then
                 n_mmc1_before=$n_mmc1
@@ -318,7 +379,6 @@ init_screen() {
     settings put global animator_duration_scale 0.0
     settings put global transition_animation_scale 0.0
     setprop persist.sys.ui.hw true
-    #busybox renice -10 $(busybox pgrep /system/bin/surfaceflinger)
     busybox renice -19 $(busybox pgrep /system/bin/onyx_tpd)
     setprop sys.interactive active
     echo interactive > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
@@ -328,34 +388,12 @@ init_screen() {
     echo 1 > /sys/devices/system/cpu/cpufreq/interactive/input_boost
     echo 60000000 > /sys/devices/system/cpu/cpufreq/interactive/min_sample_time
     echo 80 > /sys/devices/system/cpu/cpufreq/interactive/go_hispeed_load
-    #echo 1 > /sys/devices/system/cpu/cpufreq/interactive/io_is_busy
     echo 996000 > /sys/devices/system/cpu/cpufreq/interactive/hispeed_freq
 }
 
 init_vm() {
-    # Aggressive:
-    # Foreground Applications: 6400
-    # Visible Applications: 7680
-    # Secondary Server: 11520
-    # Hidden Applications: 25600
-    # Content Providers: 35840
-    # Empty Applications: 38400
-    #echo "6400,7680,11520,25600,35840,38400" > /sys/module/lowmemorykiller/parameters/minfree
     # Default LMK:
     #echo "12288,15360,18432,21504,24576,30720" > /sys/module/lowmemorykiller/parameters/minfree
-    # start writing at 20 MB, don't buffer more than 100 MB:
-    #echo 2 > /proc/sys/vm/dirty_background_ratio
-    #echo 10 > /proc/sys/vm/dirty_ratio
-    # instead of echo 1 > /proc/sys/vm/drop_caches
-    #echo 1000 > /proc/sys/vm/vfs_cache_pressure
-    # Default is 2884:
-    #echo 32768 > /proc/sys/vm/min_free_kbytes
-    # Default is 60:
-    #echo 0 > /proc/sys/vm/swappiness
-    # Faster I/O? From https://sites.google.com/site/tweakradje/android/android-tweaking
-    # Seems to improve I/O performance (and might trigger OOM killer).
-    #echo 1 > /proc/sys/vm/highmem_is_dirtyable
-    # Default is cfq:
     echo "deadline" > /sys/block/mmcblk0/queue/scheduler
     echo 1 > /sys/block/mmcblk0/queue/iosched/fifo_batch
     echo 10 > /sys/block/mmcblk0/queue/iosched/read_expire
@@ -411,13 +449,16 @@ do_restart_power_service() {
     log "restart_power_service: exiting to induce restart"
     kill $keep_screen_responsive_pid
     kill $io_watchdog_pid
+    kill $powerbutton_reaction_pid
     exit 33
 }
 
 do_enter_suspend() {
-    log "enter suspend ($mode): releasing locks"
+    log "enter suspend ($mode): suspending ..."
     set_screenlock unlocked
     set_io_wakelock unlocked
+    set_device_locker disabled
+    block_time=$((time+2))
 }
 
 do_sleep() {
@@ -434,13 +475,11 @@ do_wakeup() {
 
 do_activity() {
     log "activity ($mode): check_governor"
-    #start_screenlock
     check_governor auto
 }
 
 do_throttle() {
     log "throttle ($mode): check_governor"
-    #start_screenlock  # hilft das gegen refresh?
     check_governor auto
 }
 
@@ -461,6 +500,7 @@ sleepd() {
     set_screenlock unlocked
     log "Screen refresh to indicate sleepd start"
     refresh_screen
+    activity_detected
 
     # start reacting to messages
     time=${EPOCHREALTIME%%.*}
@@ -484,12 +524,12 @@ sleepd() {
         *updatePowerState:\ Found\ IDLE\ transfer\ to\ MEM\ state*)
             log "$line"
             #is_blocked || do_enter_suspend
-            if ! is_blocked
-            then
-            log "idle to mem: powerkey-powerkey, blocking for 240 s"
-            powerkey ; powerkey
-            block_time=$((time+240))
-            fi
+            #if ! is_blocked
+            #then
+                #log "idle to mem: powerkey-powerkey, blocking for 240 s"
+                #powerkey ; powerkey
+                #block_time=$((time+240))
+            #fi
             ;;
         *Going\ to\ sleep\ by\ user\ request...*)
             # First indicator of Onyx software starting to suspend the device
@@ -547,7 +587,7 @@ sleepd() {
         mode=$(change_mode "$mode" "$line")
 
         # check if logcat - sleepd - logwrapper loop is still working
-        if [[ $time -ge $ping_time ]] && [[ $ping_count -gt 0 ]]
+        if [[ $time -ge $ping_time && $ping_count -gt 0 ]]
         then
             echo >&2 "ping"
             ping_count=$((ping_count-1))
@@ -557,6 +597,7 @@ sleepd() {
                 log "unable to receive pings, exiting to induce restart"
                 kill $keep_screen_responsive_pid
                 kill $io_watchdog_pid
+                kill $powerbutton_reaction_pid
                 exit 33
             fi
         fi
@@ -582,13 +623,18 @@ log "System's screen off timeout is set to $((0$(settings get system screen_off_
 init_screen
 log "Set defaults for screen performance"
 
-set_screenlock locked
+set_screenlock unlocked
+set_io_wakelock unlocked
+set_device_locker disabled
 
 keep_screen_responsive &
 keep_screen_responsive_pid=$!
 
 io_watchdog &
 io_watchdog_pid=$!
+
+powerbutton_reaction &
+powerbutton_reaction_pid=$!
 
 log "Waiting for system to settle ..."
 while [[ "0$(get_n_blocked)" -gt 0 ]]
