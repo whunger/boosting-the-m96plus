@@ -1,3 +1,5 @@
+export ANDROID_SERIAL=0123456789ABCDEF
+
 all: system-patched.img system-patched-mtp.img
 
 include systemimage.mk
@@ -7,6 +9,27 @@ files-supersu.tgz: files-supersu $(shell find files-supersu/ -type f)
 
 files-tpd.tgz: files-tpd $(shell find files-tpd/ -type f)
 	tar czvf files-tpd.tgz -C files-tpd .
+
+framework-res.apk: system.img
+	test -d mp || mkdir mp
+	sudo mount -o ro system.img mp
+	cp mp/framework/framework-res.apk .
+	sudo umount mp
+	rmdir mp
+
+files-config/framework/framework-res.apk: framework-res.apk files-config
+	# See https://www.mobileread.com/forums/showpost.php?s=5d3d4f537ed8d2d3f8e7282bab483ced&p=3398726&postcount=14
+	rm -rf fw framework-res
+	../tools/apktool install-framework --frame-path fw framework-res.apk
+	../tools/apktool decode --frame-path fw framework-res.apk
+	# Remove forced bold font for all elements
+	sed --in-place -e 3d framework-res/res/raw/webview_contrast_enchanced.css
+	../tools/apktool build framework-res
+	unzip -o framework-res.apk META-INF/* AndroidManifest.xml -d framework-res/build/apk/
+	../tools/apktool build framework-res
+	mkdir -p files-config/framework
+	cp framework-res/dist/framework-res.apk files-config/framework
+	rm -rf fw framework-res
 
 files-config.tgz: files-config $(shell find files-config/ -type f) files-config/media/bootanimation.zip
 	tar czvf files-config.tgz -C files-config .
@@ -63,10 +86,11 @@ system-patched-mtp.img: system-patched.img install-mtp.sh files-mtp.tgz
 	e2fsck -f -y system-patched-mtp.img || exit 0
 
 clean:
-	rm -rf system.img system.tgz system.list
+	rm -f system.img system.tgz system.list
 	sudo rm -rf system-orig
 	rm -rf system-current.img system-current system-current.tgz system-current.list
-	rm -rf changes.list
-	rm -rf system-patched.img system-patched-mtp.img
-	rm -rf files-config.tgz files-config-mtp.tgz files-supersu.tgz files-tpd.tgz
+	rm -f changes.list
+	rm -f system-patched.img system-patched-mtp.img
+	rm -f files-config.tgz files-config-mtp.tgz files-supersu.tgz files-tpd.tgz
 	rm -rf bootanimation-825 bootanimation-1080
+	rm -f framework-res.apk
