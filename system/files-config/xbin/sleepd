@@ -92,70 +92,110 @@ is_online() {
 }
 
 set_screenlock() {
-    if [[ "$1" = "locked" ]]
+    local control_file=/mnt/shm/sleepd_screen_control
+    if [[ "$1" = "locked" ]] && ! is_on_ac
     then
-        if [[ -e /mnt/shm/sleepd_screen_release ]]
+        if [[ -e $control_file ]]
         then
             # just renew timestamp
-            touch /mnt/shm/sleepd_screen_release
+            touch $control_file
             log "updated screen release timestamp to ${EPOCHREALTIME%%.*}"
         else
             # lock and start timeout process to release lock
-            dumpsys battery set ac 1
-            dumpsys battery set status 2  # show power icon
-            log "Locked screen to on state by simulating ac power"
-            release_screen &
+            log "Locking screen to on state by simulating ac power"
+            screen_control $control_file &
             local pid=$!
-            echo $pid > /mnt/shm/sleepd_screen_release
+            echo $pid > $control_file
         fi
     elif [[ "$1" = "unlocked" ]]
     then
         dumpsys battery reset
-        rm -f /mnt/shm/sleepd_screen_release
+        rm -f $control_file
         log "Released screenlock"
     fi
 }
 
-wait_for_trigger() {
-    local trigger_file=$1
-    local timeout_seconds=$2
-    local remaining=1
+check_pid() {
+    local control_file=$1
     local pid=$(exec sh -c 'echo "$PPID"')
-    if [[ "$(cat $trigger_file)" -ne "$pid" ]]
+    local control_pid=$(cat $control_file)
+    if [[ "$control_pid" -eq "$pid" ]]
     then
-        log "Trigger file $trigger_file belongs to another subprocess: $(cat $trigger_file) <> $pid"
-        return 2
+        return 0
+    else
+        log "Control file $control_file belongs to another subprocess: $control_pid <> $pid"
+        return 1
     fi
-    while [[ $remaining -gt 0 ]]
-    do
-        log "$remaining s remaining for $trigger_file"
-        snore $remaining
-        if [[ -e $trigger_file ]]
-        then
-            local trigger_time=$(busybox date +%s -r $trigger_file)
-            local time=${EPOCHREALTIME%%.*}
-            remaining=$((trigger_time+timeout_seconds-time))
-        else
-            log "$trigger_file vanished"
-            return 1
-        fi
-    done
-    return 0
 }
 
-release_screen() {
-    local screen_off_timeout=$((0$(settings get system screen_off_timeout)/1000))
-    if wait_for_trigger /mnt/shm/sleepd_screen_release $screen_off_timeout
-    then
-        local pwrmode=$(getprop sys.onyx.pwrmode)
-        if [[ "$pwrmode" = "on" || "$pwrmode" = "" ]] && ! is_online
+screen_control() {
+    local control_file=$1
+    dumpsys battery reset
+    local state=0
+    while [[ ! -e $control_file ]]; do snore 0.1 ; done
+    while [[ -e $control_file ]]
+    do
+        # end control process if pid in control file does not match
+        check_pid $control_file || break
+        # end control process if device is plugged in
+        is_on_ac && break
+        # otherwise play the pm workaround game ...
+        local sleep_seconds=1
+        local desired_state=$state
+        local trigger_time=$(busybox date +%s -r $control_file)
+        local time=${EPOCHREALTIME%%.*}
+        local age_seconds=$((time-trigger_time))
+        if [[ $age_seconds -lt 10 ]]
         then
-            log "Forcing screen lock after $screen_off_timeout s of inactivity"
-            refresh_screen
-            powerkey
+            sleep_seconds=$((10-age_seconds))
+            desired_state=0
+        else
+            if is_online || [[ $age_seconds -lt $((0$(settings get system screen_off_timeout)/1000)) ]]
+            then
+                if [[ $state = 0 ]]
+                then
+                    desired_state=1
+                    sleep_seconds=120
+                elif [[ $state = 1 ]]
+                then
+                    desired_state=0
+                    sleep_seconds=15
+                fi
+            else
+                # trigger screen locking
+                local pwrmode=$(getprop sys.onyx.pwrmode)
+                if [[ "$pwrmode" = "on" || "$pwrmode" = "" ]]
+                then
+                    if [[ $state = 0 ]]
+                    then
+                        desired_state=1
+                        sleep_seconds=1
+                    else
+                        log "Forcing screen lock after inactivity"
+                        refresh_screen
+                        powerkey
+                        snore 3
+                    fi
+                fi
+                break
+            fi
         fi
-        set_screenlock unlocked
-    fi
+
+        if [[ $state = 1 && $desired_state = 0 ]]
+        then
+            dumpsys battery reset
+            state=0
+        elif [[ $state = 0 && $desired_state = 1 ]]
+        then
+            dumpsys battery set ac 1
+            dumpsys battery set status 2  # show power icon
+            state=1
+        fi
+
+        snore $sleep_seconds
+    done
+
+    set_screenlock unlocked
 }
 
 keep_screen_responsive() {
