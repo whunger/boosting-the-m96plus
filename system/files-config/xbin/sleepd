@@ -132,6 +132,7 @@ screen_control() {
     local control_file=$1
     dumpsys battery reset
     local state=0
+    local pause_age=120
     while [[ ! -e $control_file ]]; do snore 0.1 ; done
     while [[ -e $control_file ]]
     do
@@ -149,17 +150,20 @@ screen_control() {
         then
             sleep_seconds=$((10-age_seconds))
             desired_state=0
+            pause_age=120
         else
             if is_online || [[ $age_seconds -lt $((0$(settings get system screen_off_timeout)/1000)) ]]
             then
-                if [[ $state = 0 ]]
+                if [[ $age_seconds -le $pause_age ]]
                 then
                     desired_state=1
-                    sleep_seconds=120
-                elif [[ $state = 1 ]]
-                then
+                else
                     desired_state=0
-                    sleep_seconds=15
+                fi
+                sleep_seconds=5
+                if [[ $age_seconds -ge $((pause_age+15)) ]]
+                then
+                    pause_age=$((pause_age+120))
                 fi
             else
                 # trigger screen locking
@@ -185,11 +189,13 @@ screen_control() {
         then
             dumpsys battery reset
             state=0
+            log "battery reset"
         elif [[ $state = 0 && $desired_state = 1 ]]
         then
             dumpsys battery set ac 1
             dumpsys battery set status 2  # show power icon
             state=1
+            log "battery set ac 1"
         fi
 
         snore $sleep_seconds
