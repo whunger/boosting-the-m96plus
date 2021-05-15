@@ -33,7 +33,7 @@ case $# in
   echo Get disk block size ${amount}${kilo}
   amountkilo=$stag$kilo
   echo Resize to ${stag}${kilo}
-  e2fsck -f $2
+  e2fsck -f -y $2
   resize2fs $2 $amountkilo;;
 *)
   echo wrong number of parameters

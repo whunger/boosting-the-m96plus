@@ -69,7 +69,7 @@ system-patched.img: system.img install-config.sh files-config.tgz install-tpd.sh
 	sudo rm target/etc/security/otacerts.zip
 	sudo umount target
 	rmdir target
-	e2fsck -f system-patched.img
+	e2fsck -f -y system-patched.img || exit 0
 	resize2fs -M system-patched.img
 	e2fsck -f -y system-patched.img || exit 0
 
@@ -81,7 +81,7 @@ system-patched-mtp.img: system-patched.img install-mtp.sh files-mtp.tgz
 	sudo sh install-mtp.sh target
 	sudo umount target
 	rmdir target
-	e2fsck -f system-patched-mtp.img
+	e2fsck -f -y system-patched-mtp.img || exit 0
 	resize2fs -M system-patched-mtp.img
 	e2fsck -f -y system-patched-mtp.img || exit 0
 
