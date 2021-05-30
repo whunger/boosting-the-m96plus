@@ -17,6 +17,27 @@ files-config/media/bootanimation.zip: bootanimation-screens
 files-config-mtp/media/bootanimation.zip: files-config/media/bootanimation.zip
 	cp files-config/media/bootanimation.zip files-config-mtp/media/bootanimation.zip
 
+framework-res.apk: system.img
+	test -d mp || mkdir mp
+	sudo mount -o ro system.img mp
+	cp mp/framework/framework-res.apk .
+	sudo umount mp
+	rmdir mp
+
+files-framework/framework-res.apk: framework-res.apk
+	# See https://www.mobileread.com/forums/showpost.php?s=5d3d4f537ed8d2d3f8e7282bab483ced&p=3398726&postcount=14
+	rm -rf fw framework-res
+	../tools/apktool install-framework --frame-path fw framework-res.apk
+	../tools/apktool decode --frame-path fw framework-res.apk
+	# Remove forced bold font for all elements
+	sed --in-place -e 3d framework-res/res/raw/webview_contrast_enchanced.css
+	../tools/apktool build framework-res
+	unzip -o framework-res.apk META-INF/* AndroidManifest.xml -d framework-res/build/apk/
+	../tools/apktool build framework-res
+	mkdir -p files-framework
+	cp framework-res/dist/framework-res.apk files-framework
+	rm -rf fw framework-res
+
 system.img:
 	unzip -j ../M96_KK_2017-05-02_19-37_dev_fbc2cc2_user.zip "M96_2017-05-02_19-37_dev_fbc2cc2_user/Profiles/MX6SL Linux Update/OS Firmware/files/android/system.img"
 

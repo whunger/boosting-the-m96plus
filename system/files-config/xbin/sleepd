@@ -91,6 +91,18 @@ is_online() {
     fi
 }
 
+reset_power_state() {
+    if is_on_ac
+    then
+        dumpsys battery set ac 1
+        dumpsys battery set status 2
+    else
+        dumpsys battery set ac 0
+        dumpsys battery set status 0
+    fi
+    dumpsys battery reset
+}
+
 set_screenlock() {
     local control_file=/mnt/shm/sleepd_screen_control
     if [[ "$1" = "locked" ]] && ! is_on_ac
@@ -109,7 +121,7 @@ set_screenlock() {
         fi
     elif [[ "$1" = "unlocked" ]]
     then
-        dumpsys battery reset
+        reset_power_state
         rm -f $control_file
         log "Released screenlock"
     fi
@@ -146,9 +158,9 @@ screen_control() {
         local trigger_time=$(busybox date +%s -r $control_file)
         local time=${EPOCHREALTIME%%.*}
         local age_seconds=$((time-trigger_time))
-        if [[ $age_seconds -lt 10 ]]
+        if [[ $age_seconds -lt 1 ]]
         then
-            sleep_seconds=$((10-age_seconds))
+            sleep_seconds=0.2
             desired_state=0
             pause_age=120
         else
@@ -157,12 +169,10 @@ screen_control() {
                 if [[ $age_seconds -le $pause_age ]]
                 then
                     desired_state=1
+                    sleep_seconds=5
                 else
                     desired_state=0
-                fi
-                sleep_seconds=5
-                if [[ $age_seconds -ge $((pause_age+15)) ]]
-                then
+                    sleep_seconds=1
                     pause_age=$((pause_age+120))
                 fi
             else
@@ -187,7 +197,7 @@ screen_control() {
 
         if [[ $state = 1 && $desired_state = 0 ]]
         then
-            dumpsys battery reset
+            reset_power_state
             state=0
             log "battery reset"
         elif [[ $state = 0 && $desired_state = 1 ]]
@@ -268,7 +278,6 @@ io_watchdog() {
                 # DMA activity = sound playing
                 n_sdma_before=$n_sdma
                 sound_active=1
-                do_activity
             else
                 tinymix "ClassD Speaker Control" Off
                 sound_active=0
@@ -315,10 +324,7 @@ check_governor() {
     local target
     if [[ "$1" = "auto" ]]
     then
-        if [[ "0$(get_n_blocked)" -gt 2 ]]
-        then target="performance"
-        else target="interactive"
-        fi
+        target="interactive"
     else
         target="$1"
     fi
@@ -469,6 +475,8 @@ sleepd() {
     log "Screen refresh to indicate sleepd start"
     refresh_screen
 
+    do_activity
+
     # start reacting to messages
     time=${EPOCHREALTIME%%.*}
     ping_time=$((time+60))
@@ -536,6 +544,10 @@ sleepd() {
         *volume\ state\ changed\ for\ /storage/*\ mounted*)
             log "$line"
             init_vm
+            ;;
+        *Received*:\ android.intent.action.ACTION_POWER_DISCONNECTED*)
+            log "$line"
+            [[ -e /mnt/shm/sleepd_screen_control ]] || do_activity
             ;;
         #*android.util.PhoneWindowHelper.onLongPress*)
         *android.hardware.DeviceController.sendOpenAndCloseFrontLightBroadcast*)
